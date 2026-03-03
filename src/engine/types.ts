@@ -6,6 +6,7 @@ export interface YearResult {
   sufficiency: number;               // withdrawn / desiredExpense: 1.0 = 100% (exactly met), 0 = nothing withdrawn, 2.0 = double desired
   portfolioAfter: number;            // after withdrawal and rebalance
   cumulativeInflationFactor: number; // ∏(1 + inf) for years 0..i-1; used to compute real values
+  allocations: { id: string; pct: number }[]; // target allocation used for rebalance this year
 }
 
 export interface SimulationResult {
@@ -16,6 +17,7 @@ export interface SimulationResult {
   initialPortfolio: number;
   finalPortfolioNominal: number;
   finalPortfolioReal: number; // deflated to simulation start-year dollars
+  allocationMode: 'static' | 'glidepath';
 }
 
 export interface PercentileStats {

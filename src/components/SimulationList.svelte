@@ -28,7 +28,34 @@
 
   const ALL_KEYS: SortKey[] = ['year', 'survival', 'endValue', 'avgSufficiency'];
 
-  let sortFields = $state<SortField[]>([{ key: 'year', dir: 'asc' }]);
+  const STORAGE_KEY = 'sim-sort';
+
+  function loadSortFields(): SortField[] {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) return [{ key: 'year', dir: 'asc' }];
+      const parsed = JSON.parse(raw) as unknown[];
+      if (
+        Array.isArray(parsed) &&
+        parsed.length > 0 &&
+        parsed.every(
+          f =>
+            typeof f === 'object' && f !== null &&
+            ALL_KEYS.includes((f as SortField).key) &&
+            ['asc', 'desc'].includes((f as SortField).dir)
+        )
+      ) {
+        return parsed as SortField[];
+      }
+    } catch { /* ignore */ }
+    return [{ key: 'year', dir: 'asc' }];
+  }
+
+  let sortFields = $state<SortField[]>(loadSortFields());
+
+  $effect(() => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(sortFields));
+  });
 
   function isActive(key: SortKey) { return sortFields.some(f => f.key === key); }
 

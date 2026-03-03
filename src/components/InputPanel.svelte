@@ -49,8 +49,25 @@
   let manualInflationPct = $state(3);
   let durationYears = $state(30);
 
+  // ---- allocation mode ----
+  let allocationMode = $state<'static' | 'glidepath'>('static');
+
+  // Glidepath params
+  let glideStepCondition = $state<'unconditional' | 'sp500-ath'>('unconditional');
+  let glideStepSize      = $state(5);
+  let glideAthThreshold  = $state(5);
+
+  // Final allocation (glidepath mode)
+  let finalAssets = $state<Asset[]>([
+    { id: 'sp500', label: 'S&P 500',   enabled: true, pct: 80 },
+    { id: 'tbond', label: 'US T-Bond', enabled: true, pct: 10 },
+    { id: 'gold',  label: 'Gold',      enabled: true, pct: 10 },
+  ]);
+
+  // ---- derived validation ----
   let enabledCount  = $derived(assets.filter(a => a.enabled).length);
   let allocationSum = $derived(assets.reduce((s, a) => s + (a.enabled ? a.pct : 0), 0));
+  let finalAllocationSum = $derived(finalAssets.reduce((s, a) => s + (a.enabled ? a.pct : 0), 0));
 
   let effectiveWithdrawalAmount = $derived(
     constMode === 'amount'
@@ -68,7 +85,8 @@
     enabledCount >= 1 &&
     portfolioValue > 0 &&
     durationYears >= 1 &&
-    !withdrawalInvalid
+    !withdrawalInvalid &&
+    (allocationMode === 'static' || (finalAllocationSum === 100 && glideStepSize > 0))
   );
 
   // ---- stale indicator ----
@@ -77,11 +95,12 @@
 
   let _initialized = false;
   $effect(() => {
-    // Access every reactive input to register dependencies
     portfolioValueStr;
     strategy; constMode; withdrawalAmountStr; constPct; withdrawalPct;
     inflation; manualInflationPct; durationYears;
     assets.forEach(a => { a.enabled; a.pct; });
+    allocationMode; glideStepCondition; glideStepSize; glideAthThreshold;
+    finalAssets.forEach(a => { a.enabled; a.pct; });
 
     if (!_initialized) { _initialized = true; return; }
     if (hasRun) dirty = true;
@@ -93,21 +112,32 @@
     if (asset.enabled && enabledCount === 1) return;
     asset.enabled = !asset.enabled;
     if (!asset.enabled) asset.pct = 0;
+    // Mirror enabled state in finalAssets
+    finalAssets[idx].enabled = asset.enabled;
+    if (!finalAssets[idx].enabled) finalAssets[idx].pct = 0;
   }
 
   function handleRun() {
     if (!isValid) return;
     hasRun = true;
     dirty  = false;
+    const enabledAllocations = assets.filter(a => a.enabled).map(a => ({ id: a.id, pct: a.pct }));
     onrun({
       portfolioValue,
-      allocations: assets.filter(a => a.enabled).map(a => ({ id: a.id, pct: a.pct })),
+      allocations: enabledAllocations,
       strategy,
       withdrawalAmount: effectiveWithdrawalAmount,
       withdrawalPct,
       inflationSeries: inflation,
       manualInflationRate: manualInflationPct,
       durationYears,
+      allocationMode,
+      glidepath: allocationMode === 'glidepath' ? {
+        finalAllocations: finalAssets.filter(a => a.enabled).map(a => ({ id: a.id, pct: a.pct })),
+        stepCondition: glideStepCondition,
+        stepSize: glideStepSize,
+        athThreshold: glideAthThreshold,
+      } : undefined,
     });
   }
 </script>
@@ -133,32 +163,94 @@
 
   <section class="card">
     <h2>Asset Allocation</h2>
-    {#each assets as asset, i}
-      <div class="asset-row" class:faded={!asset.enabled}>
-        <label class="asset-check">
-          <input
-            type="checkbox"
-            checked={asset.enabled}
-            disabled={asset.enabled && enabledCount === 1}
-            onchange={() => toggleAsset(i)}
-          />
-          <span>{asset.label}</span>
+    <select bind:value={allocationMode}>
+      <option value="static">Static</option>
+      <option value="glidepath">Glidepath</option>
+    </select>
+
+    {#if allocationMode === 'static'}
+      {#each assets as asset, i}
+        <div class="asset-row" class:faded={!asset.enabled}>
+          <label class="asset-check">
+            <input
+              type="checkbox"
+              checked={asset.enabled}
+              disabled={asset.enabled && enabledCount === 1}
+              onchange={() => toggleAsset(i)}
+            />
+            <span>{asset.label}</span>
+          </label>
+          <div class="pct-wrap">
+            <input type="number" min="0" max="100" bind:value={asset.pct} disabled={!asset.enabled} />
+            <span>%</span>
+          </div>
+        </div>
+      {/each}
+      <div class="alloc-total" class:error={allocationSum !== 100}>
+        Total: {allocationSum}%
+      </div>
+
+    {:else}
+      <!-- Glidepath params -->
+      <label class="field">
+        <span>Step condition</span>
+        <select bind:value={glideStepCondition}>
+          <option value="unconditional">Unconditional</option>
+          <option value="sp500-ath">S&amp;P 500 within x% of ATH</option>
+        </select>
+      </label>
+      {#if glideStepCondition === 'sp500-ath'}
+        <label class="field">
+          <span>x (ATH threshold)</span>
+          <div class="input-adorn">
+            <input type="number" min="0" max="100" step="0.1" bind:value={glideAthThreshold} />
+            <span class="adorn-right">%</span>
+          </div>
         </label>
-        <div class="pct-wrap">
-          <input
-            type="number"
-            min="0"
-            max="100"
-            bind:value={asset.pct}
-            disabled={!asset.enabled}
-          />
-          <span>%</span>
+      {/if}
+      <label class="field">
+        <span>Step size</span>
+        <div class="input-adorn">
+          <input type="number" min="0" max="100" step="0.01" bind:value={glideStepSize} />
+          <span class="adorn-right">%</span>
+        </div>
+      </label>
+
+      <!-- Two-column allocation table -->
+      <div class="glide-alloc">
+        <div class="glide-col-headers">
+          <span class="glide-asset-header">Asset</span>
+          <span class="glide-pct-header">Initial</span>
+          <span class="glide-pct-header">Final</span>
+        </div>
+        {#each assets as asset, i}
+          <div class="glide-row" class:faded={!asset.enabled}>
+            <label class="asset-check">
+              <input
+                type="checkbox"
+                checked={asset.enabled}
+                disabled={asset.enabled && enabledCount === 1}
+                onchange={() => toggleAsset(i)}
+              />
+              <span>{asset.label}</span>
+            </label>
+            <div class="pct-wrap">
+              <input type="number" min="0" max="100" bind:value={asset.pct} disabled={!asset.enabled} />
+              <span>%</span>
+            </div>
+            <div class="pct-wrap">
+              <input type="number" min="0" max="100" bind:value={finalAssets[i].pct} disabled={!asset.enabled} />
+              <span>%</span>
+            </div>
+          </div>
+        {/each}
+        <div class="glide-totals">
+          <span></span>
+          <span class="alloc-total" class:error={allocationSum !== 100}>{allocationSum}%</span>
+          <span class="alloc-total" class:error={finalAllocationSum !== 100}>{finalAllocationSum}%</span>
         </div>
       </div>
-    {/each}
-    <div class="alloc-total" class:error={allocationSum !== 100}>
-      Total: {allocationSum}%
-    </div>
+    {/if}
   </section>
 
   <section class="card">
@@ -290,7 +382,6 @@
     margin: 0;
   }
 
-  /* ---- shared field layout ---- */
   .field {
     display: flex;
     flex-direction: column;
@@ -299,7 +390,6 @@
     color: #374151;
   }
 
-  /* ---- adorned inputs ($ prefix / % suffix) ---- */
   .input-adorn {
     display: flex;
     align-items: stretch;
@@ -336,7 +426,6 @@
     border-left: 1px solid #d1d5db;
   }
 
-  /* standalone number inputs (allocation %) */
   input[type="number"] {
     border: 1px solid #d1d5db;
     border-radius: 6px;
@@ -359,7 +448,7 @@
     color: #ef4444;
   }
 
-  /* ---- allocation rows ---- */
+  /* ---- static allocation rows ---- */
   .asset-row {
     display: flex;
     align-items: center;
@@ -398,7 +487,7 @@
   }
 
   .pct-wrap input[type="number"] {
-    width: 52px;
+    width: 46px;
     text-align: right;
     padding: 0.25rem 0.375rem;
     border: 1px solid #d1d5db;
@@ -420,6 +509,64 @@
   .alloc-total.error {
     color: #ef4444;
     font-weight: 600;
+  }
+
+  /* ---- glidepath two-column layout ---- */
+  .glide-alloc {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+
+  .glide-col-headers {
+    display: grid;
+    grid-template-columns: 1fr 62px 62px;
+    gap: 0.25rem;
+    padding-bottom: 0.125rem;
+    border-bottom: 1px solid #f3f4f6;
+  }
+
+  .glide-asset-header {
+    font-size: 0.68rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: #9ca3af;
+  }
+
+  .glide-pct-header {
+    font-size: 0.68rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: #9ca3af;
+    text-align: right;
+    padding-right: 1rem;
+  }
+
+  .glide-row {
+    display: grid;
+    grid-template-columns: 1fr 62px 62px;
+    align-items: center;
+    gap: 0.25rem;
+  }
+
+  .glide-row.faded {
+    opacity: 0.4;
+  }
+
+  .glide-totals {
+    display: grid;
+    grid-template-columns: 1fr 62px 62px;
+    gap: 0.25rem;
+    margin-top: 0.125rem;
+    border-top: 1px solid #f3f4f6;
+    padding-top: 0.25rem;
+  }
+
+  .glide-totals .alloc-total {
+    text-align: right;
+    padding-right: 1rem;
   }
 
   /* ---- radio groups ---- */

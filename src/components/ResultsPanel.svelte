@@ -9,12 +9,34 @@
   }
   let { results }: Props = $props();
 
-  let selectedSim = $state<SimulationResult | null>(null);
+  let selectedSim    = $state<SimulationResult | null>(null);
+  let savedScrollTop = 0;
 
-  // Reset detail view whenever results are replaced (new run)
+  function getScrollContainer() {
+    return document.querySelector('.results-area') as HTMLElement | null;
+  }
+
+  function handleSelectSim(sim: SimulationResult) {
+    savedScrollTop = getScrollContainer()?.scrollTop ?? 0;
+    selectedSim = sim;
+  }
+
+  // Reset detail view and saved position whenever results are replaced (new run)
   $effect(() => {
     void results.simulationCount;
+    savedScrollTop = 0;
     selectedSim = null;
+  });
+
+  // Scroll to top when entering detail; restore position when returning to results
+  $effect(() => {
+    const container = getScrollContainer();
+    if (!container) return;
+    if (selectedSim !== null) {
+      container.scrollTop = 0;
+    } else {
+      container.scrollTop = savedScrollTop;
+    }
   });
 
   type PortfolioView = 'nominal' | 'real' | 'pct';
@@ -145,7 +167,7 @@
 </script>
 
 {#if selectedSim}
-  <SimulationDetail sim={selectedSim} onback={() => (selectedSim = null)} />
+  <SimulationDetail sim={selectedSim} onback={() => { selectedSim = null; }} />
 {:else}
 <div class="results-panel">
 
@@ -275,7 +297,7 @@
   </div>
 
   <!-- Simulation list -->
-  <SimulationList {results} onselect={(s) => (selectedSim = s)} />
+  <SimulationList {results} onselect={handleSelectSim} />
 
 </div>
 {/if}

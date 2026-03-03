@@ -26,6 +26,28 @@ const INFLATION: Record<string, Map<number, number>> = {
   'inflation-singapore': new Map(singaporeInflation.values.map(d => [d.year, d.value])),
 };
 
+// S&P 500 price index (base 1.0 before 1928, compounded forward each year)
+const sp500PriceIndex = new Map<number, number>();
+{
+  let price = 1.0;
+  const sorted = [...sp500.values].sort((a, b) => a.year - b.year);
+  for (const { year, value } of sorted) {
+    price *= 1 + value;
+    sp500PriceIndex.set(year, price);
+  }
+}
+
+// Running all-time high: max S&P 500 price level from 1928 through each year
+const sp500RunningATH = new Map<number, number>();
+{
+  let ath = 0;
+  const sorted = [...sp500PriceIndex.entries()].sort((a, b) => a[0] - b[0]);
+  for (const [year, price] of sorted) {
+    ath = Math.max(ath, price);
+    sp500RunningATH.set(year, ath);
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -61,45 +83,113 @@ function computeStats(values: number[]): PercentileStats {
 }
 
 // ---------------------------------------------------------------------------
+// Glidepath step function
+// ---------------------------------------------------------------------------
+
+/**
+ * Move `current` allocations one step toward `final`, proportional to each
+ * asset's remaining distance in each direction.
+ *
+ * Invariant preserved: sum(result) === sum(current) === 1.0
+ *
+ * If total distance in one direction ≤ stepFraction, all assets in that
+ * direction jump directly to their final values (natural clamping).
+ */
+function applyGlidepathStep(
+  current: number[],    // fractions summing to 1
+  final: number[],      // fractions summing to 1
+  stepFraction: number, // step size as a fraction (e.g. 0.004 for 0.4 ppt)
+): number[] {
+  const result = [...current];
+
+  function applyDirection(sign: 1 | -1) {
+    const moving = result
+      .map((v, i) => ({ i, remaining: (final[i] - v) * sign }))
+      .filter(m => m.remaining > 1e-10);
+
+    if (moving.length === 0) return;
+
+    const totalRemaining = moving.reduce((s, m) => s + m.remaining, 0);
+
+    if (totalRemaining <= stepFraction + 1e-10) {
+      // All assets in this direction can reach final in one step
+      for (const m of moving) result[m.i] = final[m.i];
+    } else {
+      // Proportional allocation — no individual asset will overshoot
+      for (const m of moving) {
+        result[m.i] += sign * stepFraction * m.remaining / totalRemaining;
+      }
+    }
+  }
+
+  applyDirection(1);   // assets that need to increase
+  applyDirection(-1);  // assets that need to decrease
+  return result;
+}
+
+// ---------------------------------------------------------------------------
 // Single simulation
 // ---------------------------------------------------------------------------
 
+interface GlidepathConfig {
+  finalTarget:    number[];                            // fractions, same order as initialTarget
+  stepFraction:   number;
+  stepCondition:  'unconditional' | 'sp500-ath';
+  athThreshold:   number;                             // percentage, e.g. 5
+}
+
 function runOneSimulation(
-  startYear: number,
-  inputs: SimulationInputs,
-  assetMaps: Map<number, number>[],
-  allocations: number[],           // decimals summing to 1
-  getInflation: (year: number) => number,
+  startYear:     number,
+  inputs:        SimulationInputs,
+  assetMaps:     Map<number, number>[],
+  assetIds:      string[],
+  initialTarget: number[],                           // fractions summing to 1
+  glidepath:     GlidepathConfig | null,
+  getInflation:  (year: number) => number,
 ): SimulationResult {
   const { portfolioValue: initialPortfolio, durationYears, strategy, withdrawalAmount, withdrawalPct } = inputs;
 
-  // Initial desired expense (= first year's withdrawal target, used as the inflation-adjusted baseline)
   const initialDesired =
     strategy === 'constant-dollar'
       ? withdrawalAmount
       : initialPortfolio * (withdrawalPct / 100);
 
-  // Asset values, initialised proportionally to target allocation
-  let assetValues = allocations.map(a => a * initialPortfolio);
+  // Mutable working copy of the target allocation (changes each step for glidepath)
+  let currentTarget = [...initialTarget];
 
+  let assetValues = currentTarget.map(a => a * initialPortfolio);
   let failed = false;
-  let cumInflation = 1; // factor for start year = 1 (base)
+  let cumInflation = 1;
 
   const years: YearResult[] = [];
 
   for (let i = 0; i < durationYears; i++) {
     const calYear = startYear + i;
 
-    // desiredExpense this year = initialDesired × cumulative inflation since start
+    // Glidepath: update target allocation before rebalancing (skip year 0)
+    if (i > 0 && glidepath) {
+      let takeStep = glidepath.stepCondition === 'unconditional';
+
+      if (glidepath.stepCondition === 'sp500-ath') {
+        const currentLevel = sp500PriceIndex.get(calYear) ?? 0;
+        const athLevel     = sp500RunningATH.get(calYear)  ?? 0;
+        takeStep = athLevel > 0 && currentLevel >= athLevel * (1 - glidepath.athThreshold / 100);
+      }
+
+      if (takeStep) {
+        currentTarget = applyGlidepathStep(currentTarget, glidepath.finalTarget, glidepath.stepFraction);
+      }
+    }
+
     const desiredExpense = initialDesired * cumInflation;
 
-    // Step 1 — apply returns
+    // Apply returns
     for (let j = 0; j < assetMaps.length; j++) {
       assetValues[j] *= 1 + (assetMaps[j].get(calYear) ?? 0);
     }
     const portfolioBeforeWithdrawal = assetValues.reduce((s, v) => s + v, 0);
 
-    // Step 2 — determine withdrawal and portfolio after
+    // Determine withdrawal
     const targetWithdrawal =
       strategy === 'constant-dollar'
         ? desiredExpense
@@ -113,7 +203,7 @@ function runOneSimulation(
       portfolioAfter = 0;
       failed = true;
     } else if (portfolioBeforeWithdrawal < targetWithdrawal) {
-      withdrawn = portfolioBeforeWithdrawal; // take all remaining
+      withdrawn = portfolioBeforeWithdrawal;
       portfolioAfter = 0;
       failed = true;
     } else {
@@ -123,8 +213,8 @@ function runOneSimulation(
 
     const sufficiency = desiredExpense > 0 ? withdrawn / desiredExpense : 0;
 
-    // Step 3 — rebalance to target allocation
-    assetValues = allocations.map(a => a * portfolioAfter);
+    // Rebalance to current target allocation
+    assetValues = currentTarget.map(a => a * portfolioAfter);
 
     years.push({
       calendarYear: calYear,
@@ -134,15 +224,13 @@ function runOneSimulation(
       sufficiency,
       portfolioAfter,
       cumulativeInflationFactor: cumInflation,
+      allocations: assetIds.map((id, j) => ({ id, pct: currentTarget[j] * 100 })),
     });
 
-    // Update cumulative inflation: this year's rate applies to next year's desired expense
     cumInflation *= 1 + getInflation(calYear);
   }
 
   const finalPortfolioNominal = years[years.length - 1].portfolioAfter;
-  // Deflate final portfolio using the full cumulative inflation through the simulation
-  // (cumInflation has been updated once per year including the last year)
   const finalPortfolioReal = finalPortfolioNominal / cumInflation;
 
   return {
@@ -153,6 +241,7 @@ function runOneSimulation(
     initialPortfolio,
     finalPortfolioNominal,
     finalPortfolioReal,
+    allocationMode: glidepath ? 'glidepath' : 'static',
   };
 }
 
@@ -161,8 +250,26 @@ function runOneSimulation(
 // ---------------------------------------------------------------------------
 
 export function runSimulations(inputs: SimulationInputs): AggregatedResults {
-  const assetMaps  = inputs.allocations.map(a => RETURNS[a.id]);
-  const allocations = inputs.allocations.map(a => a.pct / 100);
+  const assetIds    = inputs.allocations.map(a => a.id);
+  const assetMaps   = inputs.allocations.map(a => RETURNS[a.id]);
+  const initialTarget = inputs.allocations.map(a => a.pct / 100);
+
+  // Build glidepath config (null for static mode)
+  let glidepath: GlidepathConfig | null = null;
+  if (inputs.allocationMode === 'glidepath' && inputs.glidepath) {
+    const gp = inputs.glidepath;
+    // Map finalAllocations to the same order as assetIds
+    const finalTarget = assetIds.map(id => {
+      const fa = gp.finalAllocations.find(a => a.id === id);
+      return fa ? fa.pct / 100 : 0;
+    });
+    glidepath = {
+      finalTarget,
+      stepFraction:  gp.stepSize / 100,
+      stepCondition: gp.stepCondition,
+      athThreshold:  gp.athThreshold,
+    };
+  }
 
   // Inflation getter
   let getInflation: (year: number) => number;
@@ -194,7 +301,9 @@ export function runSimulations(inputs: SimulationInputs): AggregatedResults {
   // Run one simulation per valid start year
   const simulations: SimulationResult[] = [];
   for (let y = rangeMin; y <= rangeMax - inputs.durationYears + 1; y++) {
-    simulations.push(runOneSimulation(y, inputs, assetMaps, allocations, getInflation));
+    simulations.push(
+      runOneSimulation(y, inputs, assetMaps, assetIds, initialTarget, glidepath, getInflation)
+    );
   }
 
   const empty: AggregatedResults = {
@@ -218,7 +327,6 @@ export function runSimulations(inputs: SimulationInputs): AggregatedResults {
 
   if (simulations.length === 0) return empty;
 
-  // Aggregate flat pools
   const finalPortfoliosNominal:      number[] = [];
   const finalPortfoliosReal:         number[] = [];
   const finalPortfoliosPctOfInitial: number[] = [];

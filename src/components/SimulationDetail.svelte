@@ -12,7 +12,8 @@
   let wView = $state<MoneyView>('nominal');
   let hView = $state<MoneyView>('nominal');
 
-  let portfolioEl: HTMLDivElement | undefined = $state();
+  let allocEl:      HTMLDivElement | undefined = $state();
+  let portfolioEl:  HTMLDivElement | undefined = $state();
   let withdrawalEl: HTMLDivElement | undefined = $state();
   let histEl:       HTMLDivElement | undefined = $state();
 
@@ -30,6 +31,46 @@
       xaxis: { tickformat: 'd' },
     };
   }
+
+  // Allocation chart — only rendered for glidepath simulations
+  const ALLOC_COLORS: Record<string, string> = {
+    sp500: '#3b82f6',
+    tbond: '#f59e0b',
+    gold:  '#10b981',
+  };
+  const ALLOC_LABELS: Record<string, string> = {
+    sp500: 'S&P 500',
+    tbond: 'US T-Bond',
+    gold:  'Gold',
+  };
+
+  const assetIds = sim.allocationMode === 'glidepath' && sim.years.length > 0
+    ? sim.years[0].allocations.map(a => a.id)
+    : [];
+
+  $effect(() => {
+    if (!allocEl || sim.allocationMode !== 'glidepath') return;
+    const traces = assetIds.map(id => ({
+      type: 'scatter' as const,
+      mode: 'lines' as const,
+      name: ALLOC_LABELS[id] ?? id,
+      x: xs,
+      y: sim.years.map(y => y.allocations.find(a => a.id === id)?.pct ?? 0),
+      line: { color: ALLOC_COLORS[id] ?? '#6b7280' },
+      hovertemplate: `%{x}<br>${ALLOC_LABELS[id] ?? id}: %{y:.1f}%<extra></extra>`,
+    }));
+    Plotly.react(
+      allocEl,
+      traces,
+      {
+        ...baseLayout('Allocation (%)', 40),
+        yaxis: { range: [0, 100], title: { text: 'Allocation (%)' } },
+        showlegend: true,
+        legend: { orientation: 'h' as const, x: 0.5, xanchor: 'center' as const, y: 1.18 },
+      },
+      plotConfig,
+    );
+  });
 
   $effect(() => {
     if (!portfolioEl) return;
@@ -138,6 +179,15 @@
     <div bind:this={portfolioEl} class="chart"></div>
   </div>
 
+  <!-- Allocation Over Time (glidepath only) -->
+  {#if sim.allocationMode === 'glidepath'}
+    <div class="card">
+      <h2>Asset Allocation Over Time</h2>
+      <p class="view-note">Target allocation used for rebalancing each year.</p>
+      <div bind:this={allocEl} class="chart"></div>
+    </div>
+  {/if}
+
   <!-- Withdrawals Over Time -->
   <div class="card">
     <div class="section-header">
@@ -179,6 +229,9 @@
             <th>Sufficiency</th>
             <th>Portfolio After</th>
             <th>Cum. Inflation</th>
+            {#if sim.allocationMode === 'glidepath'}
+              <th>Allocation</th>
+            {/if}
           </tr>
         </thead>
         <tbody>
@@ -191,6 +244,11 @@
               <td class:suff-ok={y.sufficiency >= 1} class:suff-low={y.sufficiency < 1}>{fmtPct(y.sufficiency)}</td>
               <td>{fmtD(y.portfolioAfter)}</td>
               <td>{fmtFactor(y.cumulativeInflationFactor)}</td>
+              {#if sim.allocationMode === 'glidepath'}
+                <td class="alloc-cell">
+                  {y.allocations.map(a => `${(ALLOC_LABELS[a.id] ?? a.id)}: ${a.pct.toFixed(1)}%`).join(' / ')}
+                </td>
+              {/if}
             </tr>
           {/each}
         </tbody>
@@ -367,4 +425,5 @@
   .depleted-row td { color: #ef4444; }
   .suff-ok { color: #10b981; font-weight: 600; }
   .suff-low { color: #ef4444; }
+  .alloc-cell { text-align: left; color: #6b7280; font-size: 0.72rem; white-space: nowrap; }
 </style>

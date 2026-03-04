@@ -7,26 +7,30 @@
   }
   let { results, onselect }: Props = $props();
 
-  type SortKey = 'year' | 'survival' | 'endValue' | 'avgSufficiency';
+  type SortKey = 'year' | 'survival' | 'endValue' | 'avgSufficiency' | 'maxDrawdownNominal' | 'maxDrawdownReal';
   type SortDir = 'asc' | 'desc';
 
   interface SortField { key: SortKey; dir: SortDir; }
 
   const KEY_LABELS: Record<SortKey, string> = {
-    year:           'Year',
-    survival:       'Survived',
-    endValue:       'End Value',
-    avgSufficiency: 'Avg Sufficiency',
+    year:                'Year',
+    survival:            'Survived',
+    endValue:            'End Value',
+    avgSufficiency:      'Avg Sufficiency',
+    maxDrawdownNominal:  'Max DD (Nominal)',
+    maxDrawdownReal:     'Max DD (Real)',
   };
 
   const DEFAULT_DIR: Record<SortKey, SortDir> = {
-    year:           'asc',
-    survival:       'desc',
-    endValue:       'desc',
-    avgSufficiency: 'desc',
+    year:                'asc',
+    survival:            'desc',
+    endValue:            'desc',
+    avgSufficiency:      'desc',
+    maxDrawdownNominal:  'asc',   // least severe (closest to 0) first by default
+    maxDrawdownReal:     'asc',
   };
 
-  const ALL_KEYS: SortKey[] = ['year', 'survival', 'endValue', 'avgSufficiency'];
+  const ALL_KEYS: SortKey[] = ['year', 'survival', 'endValue', 'avgSufficiency', 'maxDrawdownNominal', 'maxDrawdownReal'];
 
   const STORAGE_KEY = 'sim-sort';
 
@@ -87,12 +91,14 @@
   }
 
   function simVal(sim: SimulationResult, key: SortKey): number {
-    if (key === 'year')           return sim.startYear;
-    if (key === 'survival')       return sim.failed ? 0 : 1;
-    if (key === 'endValue')       return sim.finalPortfolioNominal;
-    if (key === 'avgSufficiency') return sim.years.length > 0
+    if (key === 'year')               return sim.startYear;
+    if (key === 'survival')           return sim.failed ? 0 : 1;
+    if (key === 'endValue')           return sim.finalPortfolioNominal;
+    if (key === 'avgSufficiency')     return sim.years.length > 0
       ? sim.years.reduce((s, y) => s + y.sufficiency, 0) / sim.years.length
       : 0;
+    if (key === 'maxDrawdownNominal') return sim.maxDrawdownNominal;
+    if (key === 'maxDrawdownReal')    return sim.maxDrawdownReal;
     return 0;
   }
 
@@ -108,6 +114,8 @@
 
   let showEndValue  = $derived(isActive('endValue'));
   let showAvgSuff   = $derived(isActive('avgSufficiency'));
+  let showDDNom     = $derived(isActive('maxDrawdownNominal'));
+  let showDDReal    = $derived(isActive('maxDrawdownReal'));
 
   const fmtD = (n: number) => (n < 0 ? '-$' : '$') + Math.round(Math.abs(n)).toLocaleString('en-US');
 
@@ -162,6 +170,8 @@
           <th>Survived</th>
           {#if showEndValue}<th>End Value</th>{/if}
           {#if showAvgSuff}<th>Avg Sufficiency</th>{/if}
+          {#if showDDNom}<th>Max DD (Nominal)</th>{/if}
+          {#if showDDReal}<th>Max DD (Real)</th>{/if}
           <th></th>
         </tr>
       </thead>
@@ -185,6 +195,8 @@
             </td>
             {#if showEndValue}<td>{fmtD(sim.finalPortfolioNominal)}</td>{/if}
             {#if showAvgSuff}<td>{avgSuffFmt(sim)}</td>{/if}
+            {#if showDDNom}<td>{(sim.maxDrawdownNominal * 100).toFixed(1)}%</td>{/if}
+            {#if showDDReal}<td>{(sim.maxDrawdownReal * 100).toFixed(1)}%</td>{/if}
             <td class="arrow-cell">›</td>
           </tr>
         {/each}

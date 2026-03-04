@@ -83,6 +83,23 @@ function computeStats(values: number[]): PercentileStats {
 }
 
 // ---------------------------------------------------------------------------
+// Max drawdown helper
+// ---------------------------------------------------------------------------
+
+function computeMaxDrawdown(values: number[]): number {
+  let peak = -Infinity;
+  let maxDD = 0;
+  for (const v of values) {
+    if (v > peak) peak = v;
+    if (peak > 0) {
+      const dd = (peak - v) / peak;
+      if (dd > maxDD) maxDD = dd;
+    }
+  }
+  return maxDD;
+}
+
+// ---------------------------------------------------------------------------
 // Glidepath step function
 // ---------------------------------------------------------------------------
 
@@ -233,6 +250,9 @@ function runOneSimulation(
   const finalPortfolioNominal = years[years.length - 1].portfolioAfter;
   const finalPortfolioReal = finalPortfolioNominal / cumInflation;
 
+  const maxDrawdownNominal = computeMaxDrawdown(years.map(y => y.withdrawn));
+  const maxDrawdownReal    = computeMaxDrawdown(years.map(y => y.withdrawn / y.cumulativeInflationFactor));
+
   return {
     startYear,
     endYear: startYear + durationYears - 1,
@@ -242,6 +262,8 @@ function runOneSimulation(
     finalPortfolioNominal,
     finalPortfolioReal,
     allocationMode: glidepath ? 'glidepath' : 'static',
+    maxDrawdownNominal,
+    maxDrawdownReal,
   };
 }
 
@@ -318,9 +340,11 @@ export function runSimulations(inputs: SimulationInputs): AggregatedResults {
     finalPortfoliosNominal:      [],
     finalPortfoliosReal:         [],
     finalPortfoliosPctOfInitial: [],
-    withdrawalsNominal: [],
-    withdrawalsReal:    [],
-    sufficiencies:      [],
+    withdrawalsNominal:      [],
+    withdrawalsReal:         [],
+    sufficiencies:           [],
+    maxDrawdownsNominal:     [],
+    maxDrawdownsReal:        [],
     dataStartYear: rangeMin,
     dataEndYear:   rangeMax,
   };
@@ -330,14 +354,18 @@ export function runSimulations(inputs: SimulationInputs): AggregatedResults {
   const finalPortfoliosNominal:      number[] = [];
   const finalPortfoliosReal:         number[] = [];
   const finalPortfoliosPctOfInitial: number[] = [];
-  const withdrawalsNominal: number[] = [];
-  const withdrawalsReal:    number[] = [];
-  const sufficiencies:      number[] = [];
+  const withdrawalsNominal:    number[] = [];
+  const withdrawalsReal:       number[] = [];
+  const sufficiencies:         number[] = [];
+  const maxDrawdownsNominal:   number[] = [];
+  const maxDrawdownsReal:      number[] = [];
 
   for (const sim of simulations) {
     finalPortfoliosNominal.push(sim.finalPortfolioNominal);
     finalPortfoliosReal.push(sim.finalPortfolioReal);
     finalPortfoliosPctOfInitial.push(sim.finalPortfolioNominal / sim.initialPortfolio);
+    maxDrawdownsNominal.push(sim.maxDrawdownNominal);
+    maxDrawdownsReal.push(sim.maxDrawdownReal);
 
     for (const yr of sim.years) {
       withdrawalsNominal.push(yr.withdrawn);
@@ -363,6 +391,8 @@ export function runSimulations(inputs: SimulationInputs): AggregatedResults {
     withdrawalsNominal,
     withdrawalsReal,
     sufficiencies,
+    maxDrawdownsNominal,
+    maxDrawdownsReal,
     dataStartYear: rangeMin,
     dataEndYear:   rangeMax,
   };

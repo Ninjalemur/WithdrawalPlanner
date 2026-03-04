@@ -41,9 +41,11 @@
 
   type PortfolioView = 'nominal' | 'real' | 'pct';
   type WithdrawalView = 'nominal' | 'real';
+  type DrawdownView = 'nominal' | 'real';
 
   let portfolioView  = $state<PortfolioView>('nominal');
   let withdrawalView = $state<WithdrawalView>('nominal');
+  let drawdownView   = $state<DrawdownView>('nominal');
 
   // ---- stats helper (mirrors engine, kept local to avoid coupling) ----
   function computeStats(values: number[]): PercentileStats {
@@ -97,6 +99,13 @@
   let suffData  = $derived(results.sufficiencies.map(v => v * 100));
   let suffStats = $derived(computeStats(suffData));
 
+  // Drawdown values are fractions; multiply by 100 for display (will be ≤ 0)
+  let drawdownData  = $derived(
+    (drawdownView === 'nominal' ? results.maxDrawdownsNominal : results.maxDrawdownsReal)
+      .map(v => v * 100)
+  );
+  let drawdownStats = $derived(computeStats(drawdownData));
+
   let successColor = $derived(
     results.successRate >= 0.9 ? '#10b981' :
     results.successRate >= 0.7 ? '#f59e0b' :
@@ -107,8 +116,44 @@
   let portfolioChartEl:  HTMLDivElement | undefined = $state();
   let withdrawalChartEl: HTMLDivElement | undefined = $state();
   let suffChartEl:       HTMLDivElement | undefined = $state();
+  let drawdownChartEl:   HTMLDivElement | undefined = $state();
 
   const chartConfig = { responsive: true, displayModeBar: false };
+
+  // Pre-bin data for bar charts so tooltips can show the x-range of each bar.
+  // Returns bin midpoints, human-readable labels, counts, and a nice bin size.
+  function preBin(
+    data: number[],
+    fmtLabel: (lo: number, hi: number) => string,
+    targetBins = 25,
+  ): { mids: number[]; labels: string[]; counts: number[]; size: number } {
+    const n = data.length;
+    if (n === 0) return { mids: [], labels: [], counts: [], size: 1 };
+    let lo = Infinity, hi = -Infinity;
+    for (const v of data) { if (v < lo) lo = v; if (v > hi) hi = v; }
+    const range = hi - lo;
+    let size: number;
+    if (range === 0) {
+      size = 1;
+    } else {
+      const raw = range / targetBins;
+      const mag = Math.pow(10, Math.floor(Math.log10(raw)));
+      const norm = raw / mag;
+      size = norm <= 1.5 ? mag : norm <= 3 ? 2 * mag : norm <= 7 ? 5 * mag : 10 * mag;
+    }
+    const start = Math.floor(lo / size) * size;
+    const nBins  = Math.ceil((hi - start) / size) + 1;
+    const counts = new Array(nBins).fill(0);
+    for (const v of data) {
+      const idx = Math.min(Math.floor((v - start) / size), nBins - 1);
+      if (idx >= 0) counts[idx]++;
+    }
+    const mids   = Array.from({ length: nBins }, (_, i) => start + i * size + size / 2);
+    const labels = Array.from({ length: nBins }, (_, i) =>
+      fmtLabel(start + i * size, start + (i + 1) * size)
+    );
+    return { mids, labels, counts, size };
+  }
 
   function makeLayout(yTitle: string) {
     return {
@@ -125,12 +170,18 @@
   $effect(() => {
     if (!portfolioChartEl) return;
     const isMonetary = portfolioView !== 'pct';
-    const hovertemplate = isMonetary
-      ? '$%{x:,.0f}<br>Count: %{y}<extra></extra>'
-      : '%{x:.1f}%<br>Count: %{y}<extra></extra>';
+    const fmtLabel = isMonetary
+      ? (lo: number, hi: number) => `$${Math.round(lo).toLocaleString('en-US')}–$${Math.round(hi).toLocaleString('en-US')}`
+      : (lo: number, hi: number) => `${lo.toFixed(0)}%–${hi.toFixed(0)}%`;
+    const { mids, labels, counts, size } = preBin(portfolioData, fmtLabel);
     Plotly.react(
       portfolioChartEl,
-      [{ type: 'histogram', x: portfolioData, marker: { color: '#3b82f6', opacity: 0.85 }, hovertemplate }],
+      [{
+        type: 'bar', x: mids, y: counts, width: size * 0.96,
+        customdata: labels,
+        marker: { color: '#3b82f6', opacity: 0.85 },
+        hovertemplate: '%{customdata}<br>Count: %{y}<extra></extra>',
+      }],
       {
         ...makeLayout('Simulations'),
         xaxis: {
@@ -145,10 +196,17 @@
 
   $effect(() => {
     if (!withdrawalChartEl) return;
+    const fmtLabel = (lo: number, hi: number) =>
+      `$${Math.round(lo).toLocaleString('en-US')}–$${Math.round(hi).toLocaleString('en-US')}`;
+    const { mids, labels, counts, size } = preBin(withdrawalData, fmtLabel);
     Plotly.react(
       withdrawalChartEl,
-      [{ type: 'histogram', x: withdrawalData, marker: { color: '#3b82f6', opacity: 0.85 },
-         hovertemplate: '$%{x:,.0f}<br>Count: %{y}<extra></extra>' }],
+      [{
+        type: 'bar', x: mids, y: counts, width: size * 0.96,
+        customdata: labels,
+        marker: { color: '#3b82f6', opacity: 0.85 },
+        hovertemplate: '%{customdata}<br>Count: %{y}<extra></extra>',
+      }],
       { ...makeLayout('Frequency'), xaxis: { tickprefix: '$', tickformat: ',.0f' } },
       chartConfig,
     );
@@ -156,11 +214,51 @@
 
   $effect(() => {
     if (!suffChartEl) return;
+    const fmtLabel = (lo: number, hi: number) => `${lo.toFixed(0)}%–${hi.toFixed(0)}%`;
+    const { mids, labels, counts, size } = preBin(suffData, fmtLabel);
     Plotly.react(
       suffChartEl,
-      [{ type: 'histogram', x: suffData, marker: { color: '#3b82f6', opacity: 0.85 },
-         hovertemplate: '%{x:.1f}%<br>Count: %{y}<extra></extra>' }],
+      [{
+        type: 'bar', x: mids, y: counts, width: size * 0.96,
+        customdata: labels,
+        marker: { color: '#3b82f6', opacity: 0.85 },
+        hovertemplate: '%{customdata}<br>Count: %{y}<extra></extra>',
+      }],
       { ...makeLayout('Frequency'), xaxis: { tickformat: '.0f', ticksuffix: '%' } },
+      chartConfig,
+    );
+  });
+
+  $effect(() => {
+    if (!drawdownChartEl) return;
+    const total = drawdownData.length;
+    const BIN_SIZE = 5;
+    const BIN_COUNT = 21; // 0–5, 5–10, … 100–105
+    const counts = new Array(BIN_COUNT).fill(0);
+    for (const v of drawdownData) {
+      const idx = Math.min(Math.floor(v / BIN_SIZE), BIN_COUNT - 1);
+      if (idx >= 0) counts[idx]++;
+    }
+    const binMids   = Array.from({ length: BIN_COUNT }, (_, i) => i * BIN_SIZE + BIN_SIZE / 2);
+    const binLabels = Array.from({ length: BIN_COUNT }, (_, i) =>
+      `${i * BIN_SIZE}%–${(i + 1) * BIN_SIZE}%`
+    );
+    const pcts = counts.map(c => total > 0 ? (c / total) * 100 : 0);
+    Plotly.react(
+      drawdownChartEl,
+      [{
+        type: 'bar',
+        x: binMids,
+        y: pcts,
+        width: BIN_SIZE * 0.96,
+        customdata: counts.map((c, i) => [c, binLabels[i]]),
+        marker: { color: '#3b82f6', opacity: 0.85 },
+        hovertemplate: '%{customdata[1]}<br>%{customdata[0]} simulations (%{y:.1f}%)<extra></extra>',
+      }],
+      {
+        ...makeLayout('% of Simulations'),
+        xaxis: { tickformat: '.0f', ticksuffix: '%', dtick: 10 },
+      },
       chartConfig,
     );
   });
@@ -294,6 +392,41 @@
       </table>
     </div>
     <div bind:this={suffChartEl} class="chart"></div>
+  </div>
+
+  <!-- Withdrawal Max Drawdown -->
+  <div class="card">
+    <div class="section-header">
+      <h2>Withdrawal Max Drawdown</h2>
+      <div class="toggle-group">
+        <button class:active={drawdownView === 'nominal'} onclick={() => drawdownView = 'nominal'}>Nominal</button>
+        <button class:active={drawdownView === 'real'}    onclick={() => drawdownView = 'real'}>Real</button>
+      </div>
+    </div>
+    <p class="view-note">
+      Largest % drop in annual withdrawal from its running peak, one value per simulation.
+      0% = withdrawal never declined. 100% = portfolio depleted (withdrew $0).
+    </p>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>Min</th><th>P5</th><th>P25</th><th>Median</th><th>P75</th><th>P95</th><th>Max</th><th>Mean</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>{drawdownStats.min.toFixed(1)}%</td>
+            <td>{drawdownStats.p5.toFixed(1)}%</td>
+            <td>{drawdownStats.p25.toFixed(1)}%</td>
+            <td class="em">{drawdownStats.median.toFixed(1)}%</td>
+            <td>{drawdownStats.p75.toFixed(1)}%</td>
+            <td>{drawdownStats.p95.toFixed(1)}%</td>
+            <td>{drawdownStats.max.toFixed(1)}%</td>
+            <td>{drawdownStats.mean.toFixed(1)}%</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <div bind:this={drawdownChartEl} class="chart"></div>
   </div>
 
   <!-- Simulation list -->

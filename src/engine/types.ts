@@ -18,6 +18,8 @@ export interface SimulationResult {
   finalPortfolioNominal: number;
   finalPortfolioReal: number; // deflated to simulation start-year dollars
   allocationMode: 'static' | 'glidepath';
+  maxDrawdownNominal: number; // largest % drop from running peak in nominal withdrawals; 0 = none, -1 = -100%
+  maxDrawdownReal:    number; // same in real (start-year) terms
 }
 
 export interface PercentileStats {
@@ -52,6 +54,8 @@ export interface AggregatedResults {
   withdrawalsNominal: number[];          // flat pool
   withdrawalsReal: number[];             // flat pool, start-year dollars
   sufficiencies: number[];               // flat pool
+  maxDrawdownsNominal: number[];         // one per simulation
+  maxDrawdownsReal: number[];            // one per simulation
 
   dataStartYear: number; // first year of overlapping data range
   dataEndYear: number;   // last year of overlapping data range

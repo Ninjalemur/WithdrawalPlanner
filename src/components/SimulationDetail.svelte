@@ -9,13 +9,39 @@
   let { sim, onback }: Props = $props();
 
   type MoneyView = 'nominal' | 'real';
-  let wView = $state<MoneyView>('nominal');
-  let hView = $state<MoneyView>('nominal');
+  let wView  = $state<MoneyView>('nominal');
+  let hView  = $state<MoneyView>('nominal');
+  let ddView = $state<MoneyView>('nominal');
 
   let allocEl:      HTMLDivElement | undefined = $state();
   let portfolioEl:  HTMLDivElement | undefined = $state();
   let withdrawalEl: HTMLDivElement | undefined = $state();
   let histEl:       HTMLDivElement | undefined = $state();
+  let drawdownEl:   HTMLDivElement | undefined = $state();
+
+  // Per-year running drawdown: 0% at peak, positive when below (50% = half of peak)
+  function runningDrawdown(values: number[]): number[] {
+    let peak = -Infinity;
+    return values.map(v => {
+      if (v > peak) peak = v;
+      return peak > 0 ? (peak - v) / peak : 0;
+    });
+  }
+
+  const nominalDrawdowns = runningDrawdown(sim.years.map(y => y.withdrawn));
+  const realDrawdowns    = runningDrawdown(sim.years.map(y => y.withdrawn / y.cumulativeInflationFactor));
+
+  // Annual inflation rate from consecutive cumulativeInflationFactor values
+  // cumulativeInflationFactor[i] = product(1+inf[year0..year(i-1)]), so
+  // forward ratio gives the rate that applied during calYear[i]
+  const inflationRates = sim.years.map((y, i) => {
+    if (i < sim.years.length - 1) {
+      return (sim.years[i + 1].cumulativeInflationFactor / y.cumulativeInflationFactor - 1) * 100;
+    } else if (i > 0) {
+      return (y.cumulativeInflationFactor / sim.years[i - 1].cumulativeInflationFactor - 1) * 100;
+    }
+    return 0;
+  });
 
   const plotConfig = { responsive: true, displayModeBar: false };
   const xs = sim.years.map(y => y.calendarYear);
@@ -136,6 +162,36 @@
     );
   });
 
+  $effect(() => {
+    if (!drawdownEl) return;
+    const ddY = (ddView === 'nominal' ? nominalDrawdowns : realDrawdowns).map(v => v * 100);
+    Plotly.react(
+      drawdownEl,
+      [
+        {
+          type: 'scatter', mode: 'lines+markers', name: 'Drawdown',
+          x: xs, y: ddY,
+          line: { color: '#ef4444' }, marker: { size: 4 },
+          hovertemplate: '%{x}<br>Drawdown: %{y:.1f}%<extra></extra>',
+          fill: 'tozeroy', fillcolor: 'rgba(239,68,68,0.08)',
+        },
+        {
+          type: 'scatter', mode: 'lines', name: 'Inflation',
+          x: xs, y: inflationRates,
+          line: { color: '#f59e0b', dash: 'dot', width: 1.5 },
+          hovertemplate: '%{x}<br>Inflation: %{y:.1f}%<extra></extra>',
+        },
+      ],
+      {
+        ...baseLayout('(%)', 40),
+        yaxis: { title: { text: '(%)' }, tickformat: '.0f', ticksuffix: '%' },
+        showlegend: true,
+        legend: { orientation: 'h' as const, x: 0.5, xanchor: 'center' as const, y: 1.18 },
+      },
+      plotConfig,
+    );
+  });
+
   const fmtD = (n: number) => (n < 0 ? '-$' : '$') + Math.round(Math.abs(n)).toLocaleString('en-US');
   const fmtPct = (n: number) => (n * 100).toFixed(1) + '%';
   const fmtFactor = (f: number) => ((f - 1) * 100).toFixed(1) + '%';
@@ -215,6 +271,19 @@
     <div bind:this={histEl} class="chart"></div>
   </div>
 
+  <!-- Withdrawal Drawdown Over Time -->
+  <div class="card">
+    <div class="section-header">
+      <h2>Withdrawal Drawdown Over Time</h2>
+      <div class="toggle-group">
+        <button class:active={ddView === 'nominal'} onclick={() => ddView = 'nominal'}>Nominal</button>
+        <button class:active={ddView === 'real'}    onclick={() => ddView = 'real'}>Real</button>
+      </div>
+    </div>
+    <p class="view-note">% decline from the running peak withdrawal. 0% = at or above all prior withdrawals. Amber dotted line = annual inflation rate.</p>
+    <div bind:this={drawdownEl} class="chart"></div>
+  </div>
+
   <!-- Year-by-Year Table -->
   <div class="card">
     <h2>Year-by-Year Data</h2>
@@ -229,13 +298,15 @@
             <th>Sufficiency</th>
             <th>Portfolio After</th>
             <th>Cum. Inflation</th>
+            <th>DD (Nominal)</th>
+            <th>DD (Real)</th>
             {#if sim.allocationMode === 'glidepath'}
               <th>Allocation</th>
             {/if}
           </tr>
         </thead>
         <tbody>
-          {#each sim.years as y}
+          {#each sim.years as y, i}
             <tr class:depleted-row={y.portfolioAfter === 0 && y.withdrawn < y.desiredExpense}>
               <td>{y.calendarYear}</td>
               <td>{fmtD(y.portfolioBeforeWithdrawal)}</td>
@@ -244,6 +315,8 @@
               <td class:suff-ok={y.sufficiency >= 1} class:suff-low={y.sufficiency < 1}>{fmtPct(y.sufficiency)}</td>
               <td>{fmtD(y.portfolioAfter)}</td>
               <td>{fmtFactor(y.cumulativeInflationFactor)}</td>
+              <td class:dd-nonzero={nominalDrawdowns[i] > 0}>{(nominalDrawdowns[i] * 100).toFixed(1)}%</td>
+              <td class:dd-nonzero={realDrawdowns[i] > 0}>{(realDrawdowns[i] * 100).toFixed(1)}%</td>
               {#if sim.allocationMode === 'glidepath'}
                 <td class="alloc-cell">
                   {y.allocations.map(a => `${(ALLOC_LABELS[a.id] ?? a.id)}: ${a.pct.toFixed(1)}%`).join(' / ')}
@@ -425,5 +498,6 @@
   .depleted-row td { color: #ef4444; }
   .suff-ok { color: #10b981; font-weight: 600; }
   .suff-low { color: #ef4444; }
+  .dd-nonzero { color: #ef4444; }
   .alloc-cell { text-align: left; color: #6b7280; font-size: 0.72rem; white-space: nowrap; }
 </style>

@@ -79,11 +79,11 @@
     const traces = assetIds.map(id => ({
       type: 'scatter' as const,
       mode: 'lines' as const,
-      name: ALLOC_LABELS[id] ?? id,
+      name: ALLOC_LABELS[id] ?? 'Unknown',
       x: xs,
       y: sim.years.map(y => y.allocations.find(a => a.id === id)?.pct ?? 0),
       line: { color: ALLOC_COLORS[id] ?? '#6b7280' },
-      hovertemplate: `%{x}<br>${ALLOC_LABELS[id] ?? id}: %{y:.1f}%<extra></extra>`,
+      hovertemplate: `%{x}<br>${ALLOC_LABELS[id] ?? 'Unknown'}: %{y:.1f}%<extra></extra>`,
     }));
     Plotly.react(
       allocEl,

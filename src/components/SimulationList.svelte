@@ -49,7 +49,7 @@
             ['asc', 'desc'].includes((f as SortField).dir)
         )
       ) {
-        return parsed as SortField[];
+        return (parsed as SortField[]).map(f => ({ key: (f as SortField).key, dir: (f as SortField).dir }));
       }
     } catch { /* ignore */ }
     return [{ key: 'year', dir: 'asc' }];

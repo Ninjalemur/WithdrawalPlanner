@@ -158,6 +158,7 @@
   let drawdownChartEl:   HTMLDivElement | undefined = $state();
 
   const chartConfig = { responsive: true, displayModeBar: false };
+  const r3 = (v: number) => Math.round(v * 1000) / 1000;
 
   // Pre-bin data for bar charts so tooltips can show the x-range of each bar.
   // Returns bin midpoints, human-readable labels, counts, and a nice bin size.
@@ -215,17 +216,19 @@
     const fmtLabel = isMonetary
       ? (lo: number, hi: number) => `$${Math.round(lo).toLocaleString('en-US')}–$${Math.round(hi).toLocaleString('en-US')}`
       : (lo: number, hi: number) => `${lo.toFixed(0)}%–${hi.toFixed(0)}%`;
-    const { mids, labels, counts, size } = preBin(portfolioData, fmtLabel);
+    const { mids, labels, counts, size } = preBin(portfolioData.map(r3), fmtLabel);
+    const total = portfolioData.length;
+    const pcts = counts.map(c => total > 0 ? (c / total) * 100 : 0);
     Plotly.react(
       portfolioChartEl,
       [{
-        type: 'bar', x: mids, y: counts, width: size * 0.96,
-        customdata: labels,
+        type: 'bar', x: mids, y: pcts, width: size * 0.96,
+        customdata: labels.map((lbl, i) => [counts[i], lbl]),
         marker: { color: '#3b82f6', opacity: 0.85 },
-        hovertemplate: '%{customdata}<br>Count: %{y}<extra></extra>',
+        hovertemplate: '%{customdata[1]}<br>%{customdata[0]} simulations (%{y:.1f}%)<extra></extra>',
       }],
       {
-        ...makeLayout('Simulations'),
+        ...makeLayout('% of Simulations'),
         xaxis: {
           tickprefix: isMonetary ? '$' : '',
           tickformat: isMonetary ? ',.0f' : '.1f',
@@ -240,16 +243,18 @@
     if (!withdrawalChartEl) return;
     const fmtLabel = (lo: number, hi: number) =>
       `$${Math.round(lo).toLocaleString('en-US')}–$${Math.round(hi).toLocaleString('en-US')}`;
-    const { mids, labels, counts, size } = preBin(withdrawalData, fmtLabel);
+    const { mids, labels, counts, size } = preBin(withdrawalData.map(r3), fmtLabel);
+    const total = withdrawalData.length;
+    const pcts = counts.map(c => total > 0 ? (c / total) * 100 : 0);
     Plotly.react(
       withdrawalChartEl,
       [{
-        type: 'bar', x: mids, y: counts, width: size * 0.96,
-        customdata: labels,
+        type: 'bar', x: mids, y: pcts, width: size * 0.96,
+        customdata: labels.map((lbl, i) => [counts[i], lbl]),
         marker: { color: '#3b82f6', opacity: 0.85 },
-        hovertemplate: '%{customdata}<br>Count: %{y}<extra></extra>',
+        hovertemplate: '%{customdata[1]}<br>%{customdata[0]} withdrawals (%{y:.1f}%)<extra></extra>',
       }],
-      { ...makeLayout('Frequency'), xaxis: { tickprefix: '$', tickformat: ',.0f' } },
+      { ...makeLayout('% of Withdrawals'), xaxis: { tickprefix: '$', tickformat: ',.0f' } },
       chartConfig,
     );
   });
@@ -257,18 +262,18 @@
   $effect(() => {
     if (!cvChartEl) return;
     const fmtLabel = (lo: number, hi: number) => `${lo.toFixed(0)}%–${hi.toFixed(0)}%`;
-    // Round to 3 d.p. to collapse floating-point noise (e.g. from a*b/b ≠ a)
-    // before preBin's lo===hi check, while preserving all display-relevant precision.
-    const { mids, labels, counts, size } = preBin(cvData.map(v => Math.round(v * 1000) / 1000), fmtLabel);
+    const { mids, labels, counts, size } = preBin(cvData.map(r3), fmtLabel);
+    const total = cvData.length;
+    const pcts = counts.map(c => total > 0 ? (c / total) * 100 : 0);
     Plotly.react(
       cvChartEl,
       [{
-        type: 'bar', x: mids, y: counts, width: size * 0.96,
-        customdata: labels,
+        type: 'bar', x: mids, y: pcts, width: size * 0.96,
+        customdata: labels.map((lbl, i) => [counts[i], lbl]),
         marker: { color: '#3b82f6', opacity: 0.85 },
-        hovertemplate: '%{customdata}<br>Count: %{y}<extra></extra>',
+        hovertemplate: '%{customdata[1]}<br>%{customdata[0]} simulations (%{y:.1f}%)<extra></extra>',
       }],
-      { ...makeLayout('Simulations'), xaxis: { tickformat: '.0f', ticksuffix: '%' } },
+      { ...makeLayout('% of Simulations'), xaxis: { tickformat: '.0f', ticksuffix: '%' } },
       chartConfig,
     );
   });
@@ -276,16 +281,18 @@
   $effect(() => {
     if (!suffChartEl) return;
     const fmtLabel = (lo: number, hi: number) => `${lo.toFixed(0)}%–${hi.toFixed(0)}%`;
-    const { mids, labels, counts, size } = preBin(suffData, fmtLabel);
+    const { mids, labels, counts, size } = preBin(suffData.map(r3), fmtLabel);
+    const total = suffData.length;
+    const pcts = counts.map(c => total > 0 ? (c / total) * 100 : 0);
     Plotly.react(
       suffChartEl,
       [{
-        type: 'bar', x: mids, y: counts, width: size * 0.96,
-        customdata: labels,
+        type: 'bar', x: mids, y: pcts, width: size * 0.96,
+        customdata: labels.map((lbl, i) => [counts[i], lbl]),
         marker: { color: '#3b82f6', opacity: 0.85 },
-        hovertemplate: '%{customdata}<br>Count: %{y}<extra></extra>',
+        hovertemplate: '%{customdata[1]}<br>%{customdata[0]} years (%{y:.1f}%)<extra></extra>',
       }],
-      { ...makeLayout('Frequency'), xaxis: { tickformat: '.0f', ticksuffix: '%' } },
+      { ...makeLayout('% of Years'), xaxis: { tickformat: '.0f', ticksuffix: '%' } },
       chartConfig,
     );
   });
@@ -296,7 +303,7 @@
     const BIN_SIZE = 5;
     const BIN_COUNT = 21; // 0–5, 5–10, … 100–105
     const counts = new Array(BIN_COUNT).fill(0);
-    for (const v of drawdownData) {
+    for (const v of drawdownData.map(r3)) {
       const idx = Math.min(Math.floor(v / BIN_SIZE), BIN_COUNT - 1);
       if (idx >= 0) counts[idx]++;
     }
@@ -336,7 +343,7 @@
       <div class="stat-block">
         <span class="stat-label">Simulations</span>
         <span class="stat-value">{results.simulationCount}</span>
-        <span class="stat-sub">{results.dataStartYear}–{results.dataEndYear} data range</span>
+        <span class="stat-sub">{results.dataStartYear}-{String(results.dataStartMonth).padStart(2, '0')}–{results.dataEndYear}-{String(results.dataEndMonth).padStart(2, '0')} data range</span>
       </div>
       <div class="stat-block">
         <span class="stat-label">Success rate</span>

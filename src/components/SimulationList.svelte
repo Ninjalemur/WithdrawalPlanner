@@ -117,6 +117,9 @@
   let showDDNom     = $derived(isActive('maxDrawdownNominal'));
   let showDDReal    = $derived(isActive('maxDrawdownReal'));
 
+  const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const fmtPeriod = (year: number, month: number) => `${year} ${MONTHS[month - 1]}`;
+
   const fmtD = (n: number) => (n < 0 ? '-$' : '$') + Math.round(Math.abs(n)).toLocaleString('en-US');
 
   function avgSuffFmt(sim: SimulationResult): string {
@@ -185,7 +188,7 @@
             tabindex="0"
             onkeydown={(e) => e.key === 'Enter' && onselect(sim)}
           >
-            <td class="left period">{sim.startYear}–{sim.endYear}</td>
+            <td class="left period">{fmtPeriod(sim.startYear, sim.startMonth)} – {fmtPeriod(sim.endYear, sim.startMonth)}</td>
             <td class="center">
               {#if sim.failed}
                 <span class="icon-fail">✗</span>

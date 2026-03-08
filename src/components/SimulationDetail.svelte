@@ -43,8 +43,13 @@
     return 0;
   });
 
+  const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const fmtPeriod = (year: number, month: number) => `${year} ${MONTHS[month - 1]}`;
+  const r3 = (v: number) => Math.round(v * 1000) / 1000;
+
   const plotConfig = { responsive: true, displayModeBar: false };
   const xs = sim.years.map(y => y.calendarYear);
+  const ym = sim.years.map(y => `${y.calendarYear}-${String(y.calendarMonth).padStart(2, '0')}`);
 
   function baseLayout(yTitle: string, marginTop = 10) {
     return {
@@ -82,8 +87,9 @@
       name: ALLOC_LABELS[id] ?? 'Unknown',
       x: xs,
       y: sim.years.map(y => y.allocations.find(a => a.id === id)?.pct ?? 0),
+      customdata: ym,
       line: { color: ALLOC_COLORS[id] ?? '#6b7280' },
-      hovertemplate: `%{x}<br>${ALLOC_LABELS[id] ?? 'Unknown'}: %{y:.1f}%<extra></extra>`,
+      hovertemplate: `%{customdata}<br>${ALLOC_LABELS[id] ?? 'Unknown'}: %{y:.1f}%<extra></extra>`,
     }));
     Plotly.react(
       allocEl,
@@ -111,9 +117,10 @@
         },
         {
           type: 'scatter', mode: 'lines+markers', name: 'Portfolio',
-          x: xs, y: sim.years.map(y => y.portfolioAfter),
+          x: xs, y: sim.years.map(y => r3(y.portfolioAfter)),
+          customdata: ym,
           line: { color: '#3b82f6' }, marker: { size: 4 },
-          hovertemplate: '%{x}<br>$%{y:,.0f}<extra></extra>',
+          hovertemplate: '%{customdata}<br>$%{y:,.0f}<extra></extra>',
         },
       ],
       { ...baseLayout('Portfolio Value ($)'), showlegend: false },
@@ -124,20 +131,20 @@
   $effect(() => {
     if (!withdrawalEl) return;
     const real = wView === 'real';
-    const wY = sim.years.map(y => real ? y.withdrawn      / y.cumulativeInflationFactor : y.withdrawn);
-    const dY = sim.years.map(y => real ? y.desiredExpense / y.cumulativeInflationFactor : y.desiredExpense);
+    const wY = sim.years.map(y => r3(real ? y.withdrawn      / y.cumulativeInflationFactor : y.withdrawn));
+    const dY = sim.years.map(y => r3(real ? y.desiredExpense / y.cumulativeInflationFactor : y.desiredExpense));
     Plotly.react(
       withdrawalEl,
       [
         {
           type: 'scatter', mode: 'lines+markers', name: 'Withdrawn',
-          x: xs, y: wY, line: { color: '#3b82f6' }, marker: { size: 4 },
-          hovertemplate: '%{x}<br>$%{y:,.0f}<extra></extra>',
+          x: xs, y: wY, customdata: ym, line: { color: '#3b82f6' }, marker: { size: 4 },
+          hovertemplate: '%{customdata}<br>$%{y:,.0f}<extra></extra>',
         },
         {
           type: 'scatter', mode: 'lines', name: 'Desired',
-          x: xs, y: dY, line: { color: '#f59e0b', dash: 'dash' },
-          hovertemplate: '%{x}<br>$%{y:,.0f}<extra></extra>',
+          x: xs, y: dY, customdata: ym, line: { color: '#f59e0b', dash: 'dash' },
+          hovertemplate: '%{customdata}<br>$%{y:,.0f}<extra></extra>',
         },
       ],
       {
@@ -152,34 +159,34 @@
   $effect(() => {
     if (!histEl) return;
     const real = hView === 'real';
-    const data = sim.years.map(y => real ? y.withdrawn / y.cumulativeInflationFactor : y.withdrawn);
+    const data = sim.years.map(y => r3(real ? y.withdrawn / y.cumulativeInflationFactor : y.withdrawn));
     Plotly.react(
       histEl,
-      [{ type: 'histogram', x: data, marker: { color: '#3b82f6', opacity: 0.85 },
-         hovertemplate: '$%{x:,.0f}<br>Count: %{y}<extra></extra>' }],
-      { ...baseLayout('Years'), xaxis: { tickprefix: '$', tickformat: ',.0f' } },
+      [{ type: 'histogram', x: data, histnorm: 'percent', marker: { color: '#3b82f6', opacity: 0.85 },
+         hovertemplate: '$%{x:,.0f}<br>%{y:.1f}% of years<extra></extra>' }],
+      { ...baseLayout('% of Years'), xaxis: { tickprefix: '$', tickformat: ',.0f' } },
       plotConfig,
     );
   });
 
   $effect(() => {
     if (!drawdownEl) return;
-    const ddY = (ddView === 'nominal' ? nominalDrawdowns : realDrawdowns).map(v => v * 100);
+    const ddY = (ddView === 'nominal' ? nominalDrawdowns : realDrawdowns).map(v => r3(v * 100));
     Plotly.react(
       drawdownEl,
       [
         {
           type: 'scatter', mode: 'lines+markers', name: 'Drawdown',
-          x: xs, y: ddY,
+          x: xs, y: ddY, customdata: ym,
           line: { color: '#ef4444' }, marker: { size: 4 },
-          hovertemplate: '%{x}<br>Drawdown: %{y:.1f}%<extra></extra>',
+          hovertemplate: '%{customdata}<br>Drawdown: %{y:.1f}%<extra></extra>',
           fill: 'tozeroy', fillcolor: 'rgba(239,68,68,0.08)',
         },
         {
           type: 'scatter', mode: 'lines', name: 'Inflation',
-          x: xs, y: inflationRates,
+          x: xs, y: inflationRates.map(r3), customdata: ym,
           line: { color: '#f59e0b', dash: 'dot', width: 1.5 },
-          hovertemplate: '%{x}<br>Inflation: %{y:.1f}%<extra></extra>',
+          hovertemplate: '%{customdata}<br>Inflation: %{y:.1f}%<extra></extra>',
         },
       ],
       {
@@ -203,7 +210,7 @@
   <div class="detail-header">
     <button class="back-btn" onclick={onback}>← Back to Results</button>
     <div class="header-title">
-      <h1>{sim.startYear}–{sim.endYear}</h1>
+      <h1>{fmtPeriod(sim.startYear, sim.startMonth)} – {fmtPeriod(sim.endYear, sim.startMonth)}</h1>
       <span class="badge" class:survived={!sim.failed} class:failed={sim.failed}>
         {sim.failed ? '✗ Depleted' : '✓ Survived'}
       </span>
@@ -291,7 +298,7 @@
       <table>
         <thead>
           <tr>
-            <th>Year</th>
+            <th>Period</th>
             <th>Portfolio Before</th>
             <th>Desired Expense</th>
             <th>Withdrawn</th>
@@ -308,7 +315,7 @@
         <tbody>
           {#each sim.years as y, i}
             <tr class:depleted-row={y.portfolioAfter === 0 && y.withdrawn < y.desiredExpense}>
-              <td>{y.calendarYear}</td>
+              <td>{y.calendarYear}-{String(y.calendarMonth).padStart(2, '0')}</td>
               <td>{fmtD(y.portfolioBeforeWithdrawal)}</td>
               <td>{fmtD(y.desiredExpense)}</td>
               <td>{fmtD(y.withdrawn)}</td>

@@ -66,7 +66,7 @@
   };
   const ALLOC_LABELS: Record<string, string> = {
     sp500: 'S&P 500',
-    tbond: 'US T-Bond',
+    tbond: 'US T-Bond (10Y)',
     gold:  'Gold',
   };
 

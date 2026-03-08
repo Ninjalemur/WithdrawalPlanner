@@ -31,7 +31,7 @@
   // ---- state ----
   let assets = $state<Asset[]>([
     { id: 'sp500', label: 'S&P 500',   enabled: true, pct: 60 },
-    { id: 'tbond', label: 'US T-Bond', enabled: true, pct: 30 },
+    { id: 'tbond', label: 'US T-Bond (10Y)', enabled: true, pct: 30 },
     { id: 'gold',  label: 'Gold',      enabled: true, pct: 10 },
   ]);
 
@@ -60,7 +60,7 @@
   // Final allocation (glidepath mode)
   let finalAssets = $state<Asset[]>([
     { id: 'sp500', label: 'S&P 500',   enabled: true, pct: 80 },
-    { id: 'tbond', label: 'US T-Bond', enabled: true, pct: 10 },
+    { id: 'tbond', label: 'US T-Bond (10Y)', enabled: true, pct: 10 },
     { id: 'gold',  label: 'Gold',      enabled: true, pct: 10 },
   ]);
 

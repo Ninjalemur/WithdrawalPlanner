@@ -20,6 +20,8 @@ export interface SimulationResult {
   allocationMode: 'static' | 'glidepath';
   maxDrawdownNominal: number; // largest % drop from running peak in nominal withdrawals; 0 = none, -1 = -100%
   maxDrawdownReal:    number; // same in real (start-year) terms
+  withdrawalCVAll:     number; // CV (SD/mean) of real withdrawals, including $0 (depleted) years
+  withdrawalCVNonZero: number; // CV excluding $0 years
 }
 
 export interface PercentileStats {
@@ -56,6 +58,9 @@ export interface AggregatedResults {
   sufficiencies: number[];               // flat pool
   maxDrawdownsNominal: number[];         // one per simulation
   maxDrawdownsReal: number[];            // one per simulation
+  withdrawalCVsAll: number[];            // one per simulation, CV including $0 years
+  withdrawalCVsNonZero: number[];        // one per simulation, CV excluding $0 years
+  sufficienciesNonZero: number[];        // flat pool, excluding years where withdrawn === 0
 
   dataStartYear: number; // first year of overlapping data range
   dataEndYear: number;   // last year of overlapping data range

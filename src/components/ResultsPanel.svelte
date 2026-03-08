@@ -68,10 +68,14 @@
   type PortfolioView = 'nominal' | 'real' | 'pct';
   type WithdrawalView = 'nominal' | 'real';
   type DrawdownView = 'nominal' | 'real';
+  type CVView   = 'all' | 'nonzero';
+  type SuffView = 'all' | 'nonzero';
 
   let portfolioView  = $state<PortfolioView>('nominal');
   let withdrawalView = $state<WithdrawalView>('nominal');
   let drawdownView   = $state<DrawdownView>('nominal');
+  let cvView   = $state<CVView>('all');
+  let suffView = $state<SuffView>('all');
 
   // ---- stats helper (mirrors engine, kept local to avoid coupling) ----
   function computeStats(values: number[]): PercentileStats {
@@ -122,8 +126,16 @@
   let withdrawalStats = $derived(computeStats(withdrawalData));
 
   // Sufficiency values are ratios; multiply by 100 for display
-  let suffData  = $derived(results.sufficiencies.map(v => v * 100));
+  let suffData  = $derived(
+    (suffView === 'all' ? results.sufficiencies : results.sufficienciesNonZero).map(v => v * 100)
+  );
   let suffStats = $derived(computeStats(suffData));
+
+  // CV values are fractions; multiply by 100 for display
+  let cvData  = $derived(
+    (cvView === 'all' ? results.withdrawalCVsAll : results.withdrawalCVsNonZero).map(v => v * 100)
+  );
+  let cvStats = $derived(computeStats(cvData));
 
   // Drawdown values are fractions; multiply by 100 for display (will be ≤ 0)
   let drawdownData  = $derived(
@@ -141,6 +153,7 @@
   // ---- Plotly chart refs ----
   let portfolioChartEl:  HTMLDivElement | undefined = $state();
   let withdrawalChartEl: HTMLDivElement | undefined = $state();
+  let cvChartEl:         HTMLDivElement | undefined = $state();
   let suffChartEl:       HTMLDivElement | undefined = $state();
   let drawdownChartEl:   HTMLDivElement | undefined = $state();
 
@@ -157,6 +170,9 @@
     if (n === 0) return { mids: [], labels: [], counts: [], size: 1 };
     let lo = Infinity, hi = -Infinity;
     for (const v of data) { if (v < lo) lo = v; if (v > hi) hi = v; }
+    if (lo === hi) {
+      return { mids: [lo], labels: [fmtLabel(lo, lo)], counts: [n], size: 1 };
+    }
     const range = hi - lo;
     let size: number;
     if (range === 0) {
@@ -168,7 +184,7 @@
       size = norm <= 1.5 ? mag : norm <= 3 ? 2 * mag : norm <= 7 ? 5 * mag : 10 * mag;
     }
     const start = Math.floor(lo / size) * size;
-    const nBins  = Math.ceil((hi - start) / size) + 1;
+    const nBins  = Math.max(1, Math.floor((hi - start) / size) + 1);
     const counts = new Array(nBins).fill(0);
     for (const v of data) {
       const idx = Math.min(Math.floor((v - start) / size), nBins - 1);
@@ -234,6 +250,25 @@
         hovertemplate: '%{customdata}<br>Count: %{y}<extra></extra>',
       }],
       { ...makeLayout('Frequency'), xaxis: { tickprefix: '$', tickformat: ',.0f' } },
+      chartConfig,
+    );
+  });
+
+  $effect(() => {
+    if (!cvChartEl) return;
+    const fmtLabel = (lo: number, hi: number) => `${lo.toFixed(0)}%–${hi.toFixed(0)}%`;
+    // Round to 3 d.p. to collapse floating-point noise (e.g. from a*b/b ≠ a)
+    // before preBin's lo===hi check, while preserving all display-relevant precision.
+    const { mids, labels, counts, size } = preBin(cvData.map(v => Math.round(v * 1000) / 1000), fmtLabel);
+    Plotly.react(
+      cvChartEl,
+      [{
+        type: 'bar', x: mids, y: counts, width: size * 0.96,
+        customdata: labels,
+        marker: { color: '#3b82f6', opacity: 0.85 },
+        hovertemplate: '%{customdata}<br>Count: %{y}<extra></extra>',
+      }],
+      { ...makeLayout('Simulations'), xaxis: { tickformat: '.0f', ticksuffix: '%' } },
       chartConfig,
     );
   });
@@ -389,14 +424,55 @@
     <div bind:this={withdrawalChartEl} class="chart"></div>
   </div>
 
+  <!-- Withdrawal Variability -->
+  <div class="card">
+    <div class="section-header">
+      <h2>Withdrawal Variability</h2>
+      <div class="toggle-group">
+        <button class:active={cvView === 'all'}     onclick={() => cvView = 'all'}>Inc. depleted years</button>
+        <button class:active={cvView === 'nonzero'} onclick={() => cvView = 'nonzero'}>Exc. depleted years</button>
+      </div>
+    </div>
+    <p class="view-note">
+      Coefficient of variation (SD ÷ mean) of real withdrawals, one value per simulation. Higher = more volatile spending.
+      {#if cvView === 'all'}Includes years where the portfolio was depleted ($0 withdrawn).
+      {:else}Excludes years where the portfolio was depleted ($0 withdrawn).{/if}
+    </p>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>Min</th><th>P5</th><th>P25</th><th>Median</th><th>P75</th><th>P95</th><th>Max</th><th>Mean</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>{cvStats.min.toFixed(1)}%</td>
+            <td>{cvStats.p5.toFixed(1)}%</td>
+            <td>{cvStats.p25.toFixed(1)}%</td>
+            <td class="em">{cvStats.median.toFixed(1)}%</td>
+            <td>{cvStats.p75.toFixed(1)}%</td>
+            <td>{cvStats.p95.toFixed(1)}%</td>
+            <td>{cvStats.max.toFixed(1)}%</td>
+            <td>{cvStats.mean.toFixed(1)}%</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <div bind:this={cvChartEl} class="chart"></div>
+  </div>
+
   <!-- Withdrawal Sufficiency -->
   <div class="card">
     <div class="section-header">
       <h2>Withdrawal Sufficiency</h2>
+      <div class="toggle-group">
+        <button class:active={suffView === 'all'}     onclick={() => suffView = 'all'}>Inc. depleted years</button>
+        <button class:active={suffView === 'nonzero'} onclick={() => suffView = 'nonzero'}>Exc. depleted years</button>
+      </div>
     </div>
     <p class="view-note">
       The target each year is the initial withdrawal amount adjusted for inflation.
-      Flat pool across all simulations × years.<br />
+      {#if suffView === 'all'}Flat pool across all simulations × years.
+      {:else}Flat pool excluding years where the portfolio was depleted ($0 withdrawn).{/if}<br />
       100% = exactly met target withdrawal. 0% = nothing withdrawn (portfolio depleted). 200% = double the target.
     </p>
     <div class="table-wrap">

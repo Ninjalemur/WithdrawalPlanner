@@ -395,8 +395,9 @@
       <h2>Withdrawal Sufficiency</h2>
     </div>
     <p class="view-note">
+      The target each year is the initial withdrawal amount adjusted for inflation.
+      Flat pool across all simulations × years.<br />
       100% = exactly met target withdrawal. 0% = nothing withdrawn (portfolio depleted). 200% = double the target.
-      Flat pool across all simulations × years.
     </p>
     <div class="table-wrap">
       <table>

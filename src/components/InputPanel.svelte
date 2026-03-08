@@ -261,6 +261,7 @@
     </select>
 
     {#if strategy === 'constant-dollar'}
+      <p class="sub-label">Initial withdrawal</p>
       <div class="radio-group sub-radio">
         <label>
           <input type="radio" bind:group={constMode} value="amount" />
@@ -587,6 +588,15 @@
 
   .radio-group input[type="radio"] {
     accent-color: #3b82f6;
+  }
+
+  .sub-label {
+    margin: 0.25rem 0 0.1rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: #6b7280;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
   }
 
   .sub-radio {

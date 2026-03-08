@@ -1,16 +1,18 @@
 export interface YearResult {
   calendarYear: number;
+  calendarMonth: number;              // start month of this annual step (same as SimulationResult.startMonth)
   portfolioBeforeWithdrawal: number; // after returns applied, before withdrawal
   desiredExpense: number;            // inflation-adjusted target withdrawal
   withdrawn: number;                 // actual amount withdrawn
   sufficiency: number;               // withdrawn / desiredExpense: 1.0 = 100% (exactly met), 0 = nothing withdrawn, 2.0 = double desired
   portfolioAfter: number;            // after withdrawal and rebalance
-  cumulativeInflationFactor: number; // ∏(1 + inf) for years 0..i-1; used to compute real values
+  cumulativeInflationFactor: number; // ∏(1 + inf) for steps 0..i-1; used to compute real values
   allocations: { id: string; pct: number }[]; // target allocation used for rebalance this year
 }
 
 export interface SimulationResult {
   startYear: number;
+  startMonth: number;  // 1–12; paired with startYear
   endYear: number;
   failed: boolean;       // portfolio hit $0 at some point during the simulation
   years: YearResult[];
@@ -62,6 +64,8 @@ export interface AggregatedResults {
   withdrawalCVsNonZero: number[];        // one per simulation, CV excluding $0 years
   sufficienciesNonZero: number[];        // flat pool, excluding years where withdrawn === 0
 
-  dataStartYear: number; // first year of overlapping data range
-  dataEndYear: number;   // last year of overlapping data range
+  dataStartYear: number;   // first year of overlapping data range
+  dataStartMonth: number;  // first month of overlapping data range (1–12)
+  dataEndYear: number;     // last year of overlapping data range
+  dataEndMonth: number;    // last month of overlapping data range (1–12)
 }

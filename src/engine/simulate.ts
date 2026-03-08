@@ -1,9 +1,10 @@
 import type { SimulationInputs } from '../lib/types';
-import { sp500 } from '../data/returns/sp500';
-import { tbond } from '../data/returns/tbond';
-import { gold } from '../data/returns/gold';
-import { usInflation } from '../data/inflation/us';
-import { singaporeInflation } from '../data/inflation/singapore';
+import { sp500AnnualReturns } from '../data/compiled/returns/sp500';
+import { tbondAnnualReturns } from '../data/compiled/returns/tbond';
+import { goldAnnualReturns  } from '../data/compiled/returns/gold';
+import { usInflationMap        } from '../data/compiled/inflation/us';
+import { singaporeInflationMap } from '../data/compiled/inflation/singapore';
+import { sp500PriceIndex, sp500RunningATH } from '../data/compiled/sp500Index';
 import type {
   AggregatedResults,
   PercentileStats,
@@ -12,50 +13,53 @@ import type {
 } from './types';
 
 // ---------------------------------------------------------------------------
-// Static lookup maps — built once at module load
+// Static lookup maps — imported from pre-compiled files (built by scripts/compile-data.ts)
 // ---------------------------------------------------------------------------
 
-const RETURNS: Record<string, Map<number, number>> = {
-  sp500: new Map(sp500.values.map(d => [d.year, d.value])),
-  tbond: new Map(tbond.values.map(d => [d.year, d.value])),
-  gold:  new Map(gold.values.map(d => [d.year, d.value])),
+const ANNUAL_RETURNS: Record<string, Map<number, number>> = {
+  sp500: sp500AnnualReturns,
+  tbond: tbondAnnualReturns,
+  gold:  goldAnnualReturns,
 };
 
-const INFLATION: Record<string, Map<number, number>> = {
-  'inflation-us':        new Map(usInflation.values.map(d => [d.year, d.value])),
-  'inflation-singapore': new Map(singaporeInflation.values.map(d => [d.year, d.value])),
+const INFLATION_MAPS: Record<string, Map<number, number>> = {
+  'inflation-us':        usInflationMap,
+  'inflation-singapore': singaporeInflationMap,
 };
 
-// S&P 500 price index (base 1.0 before 1928, compounded forward each year)
-const sp500PriceIndex = new Map<number, number>();
-{
-  let price = 1.0;
-  const sorted = [...sp500.values].sort((a, b) => a.year - b.year);
-  for (const { year, value } of sorted) {
-    price *= 1 + value;
-    sp500PriceIndex.set(year, price);
-  }
+// ---------------------------------------------------------------------------
+// Month/year helpers
+// ---------------------------------------------------------------------------
+
+/** YYYYMM key: e.g. ymKey(2025, 3) = 202503 */
+function ymKey(year: number, month: number): number {
+  return year * 100 + month;
 }
 
-// Running all-time high: max S&P 500 price level from 1928 through each year
-const sp500RunningATH = new Map<number, number>();
-{
-  let ath = 0;
-  const sorted = [...sp500PriceIndex.entries()].sort((a, b) => a[0] - b[0]);
-  for (const [year, price] of sorted) {
-    ath = Math.max(ath, price);
-    sp500RunningATH.set(year, ath);
+/** Linear month index: lm = year*12 + (month-1). Invertible, monotonically increasing. */
+function ymToLM(year: number, month: number): number {
+  return year * 12 + (month - 1);
+}
+
+function lmToYM(lm: number): { year: number; month: number } {
+  return { year: Math.floor(lm / 12), month: (lm % 12) + 1 };
+}
+
+/** Min and max linear month index across all YYYYMM keys in the map. */
+function mapMonthRange(m: Map<number, number>): [number, number] {
+  let minLM = Infinity;
+  let maxLM = -Infinity;
+  for (const key of m.keys()) {
+    const lm = ymToLM(Math.floor(key / 100), key % 100);
+    if (lm < minLM) minLM = lm;
+    if (lm > maxLM) maxLM = lm;
   }
+  return [minLM, maxLM];
 }
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-function mapYearRange(m: Map<number, number>): [number, number] {
-  const years = Array.from(m.keys());
-  return [Math.min(...years), Math.max(...years)];
-}
 
 function interpolatedPercentile(sorted: number[], p: number): number {
   const idx = (p / 100) * (sorted.length - 1);
@@ -120,14 +124,11 @@ function computeCV(values: number[]): number {
  * asset's remaining distance in each direction.
  *
  * Invariant preserved: sum(result) === sum(current) === 1.0
- *
- * If total distance in one direction ≤ stepFraction, all assets in that
- * direction jump directly to their final values (natural clamping).
  */
 function applyGlidepathStep(
-  current: number[],    // fractions summing to 1
-  final: number[],      // fractions summing to 1
-  stepFraction: number, // step size as a fraction (e.g. 0.004 for 0.4 ppt)
+  current: number[],
+  final: number[],
+  stepFraction: number,
 ): number[] {
   const result = [...current];
 
@@ -141,18 +142,16 @@ function applyGlidepathStep(
     const totalRemaining = moving.reduce((s, m) => s + m.remaining, 0);
 
     if (totalRemaining <= stepFraction + 1e-10) {
-      // All assets in this direction can reach final in one step
       for (const m of moving) result[m.i] = final[m.i];
     } else {
-      // Proportional allocation — no individual asset will overshoot
       for (const m of moving) {
         result[m.i] += sign * stepFraction * m.remaining / totalRemaining;
       }
     }
   }
 
-  applyDirection(1);   // assets that need to increase
-  applyDirection(-1);  // assets that need to decrease
+  applyDirection(1);
+  applyDirection(-1);
   return result;
 }
 
@@ -161,20 +160,21 @@ function applyGlidepathStep(
 // ---------------------------------------------------------------------------
 
 interface GlidepathConfig {
-  finalTarget:    number[];                            // fractions, same order as initialTarget
+  finalTarget:    number[];
   stepFraction:   number;
   stepCondition:  'unconditional' | 'sp500-ath';
-  athThreshold:   number;                             // percentage, e.g. 5
+  athThreshold:   number;
 }
 
 function runOneSimulation(
   startYear:     number,
+  startMonth:    number,
   inputs:        SimulationInputs,
-  assetMaps:     Map<number, number>[],
+  assetMaps:     Map<number, number>[],  // precomputed annual return maps (YYYYMM key)
   assetIds:      string[],
-  initialTarget: number[],                           // fractions summing to 1
+  initialTarget: number[],
   glidepath:     GlidepathConfig | null,
-  getInflation:  (year: number) => number,
+  getInflation:  (ymKeyVal: number) => number,
 ): SimulationResult {
   const { portfolioValue: initialPortfolio, durationYears, strategy, withdrawalAmount, withdrawalPct } = inputs;
 
@@ -183,9 +183,7 @@ function runOneSimulation(
       ? withdrawalAmount
       : initialPortfolio * (withdrawalPct / 100);
 
-  // Mutable working copy of the target allocation (changes each step for glidepath)
   let currentTarget = [...initialTarget];
-
   let assetValues = currentTarget.map(a => a * initialPortfolio);
   let failed = false;
   let cumInflation = 1;
@@ -194,14 +192,15 @@ function runOneSimulation(
 
   for (let i = 0; i < durationYears; i++) {
     const calYear = startYear + i;
+    const stepKey = ymKey(calYear, startMonth);
 
-    // Glidepath: update target allocation before rebalancing (skip year 0)
+    // Glidepath: update target allocation before rebalancing (skip step 0)
     if (i > 0 && glidepath) {
       let takeStep = glidepath.stepCondition === 'unconditional';
 
       if (glidepath.stepCondition === 'sp500-ath') {
-        const currentLevel = sp500PriceIndex.get(calYear) ?? 0;
-        const athLevel     = sp500RunningATH.get(calYear)  ?? 0;
+        const currentLevel = sp500PriceIndex.get(stepKey) ?? 0;
+        const athLevel     = sp500RunningATH.get(stepKey)  ?? 0;
         takeStep = athLevel > 0 && currentLevel >= athLevel * (1 - glidepath.athThreshold / 100);
       }
 
@@ -212,9 +211,9 @@ function runOneSimulation(
 
     const desiredExpense = initialDesired * cumInflation;
 
-    // Apply returns
+    // Apply precomputed 12-month compound return for this step
     for (let j = 0; j < assetMaps.length; j++) {
-      assetValues[j] *= 1 + (assetMaps[j].get(calYear) ?? 0);
+      assetValues[j] *= 1 + (assetMaps[j].get(stepKey) ?? 0);
     }
     const portfolioBeforeWithdrawal = assetValues.reduce((s, v) => s + v, 0);
 
@@ -247,6 +246,7 @@ function runOneSimulation(
 
     years.push({
       calendarYear: calYear,
+      calendarMonth: startMonth,
       portfolioBeforeWithdrawal,
       desiredExpense,
       withdrawn,
@@ -256,7 +256,9 @@ function runOneSimulation(
       allocations: assetIds.map((id, j) => ({ id, pct: currentTarget[j] * 100 })),
     });
 
-    cumInflation *= 1 + getInflation(calYear);
+    // Inflation: YoY rate at same month of next year
+    const inflKey = ymKey(calYear + 1, startMonth);
+    cumInflation *= 1 + getInflation(inflKey);
   }
 
   const finalPortfolioNominal = years[years.length - 1].portfolioAfter;
@@ -274,6 +276,7 @@ function runOneSimulation(
 
   return {
     startYear,
+    startMonth,
     endYear: startYear + durationYears - 1,
     failed,
     years,
@@ -294,14 +297,13 @@ function runOneSimulation(
 
 export function runSimulations(inputs: SimulationInputs): AggregatedResults {
   const assetIds    = inputs.allocations.map(a => a.id);
-  const assetMaps   = inputs.allocations.map(a => RETURNS[a.id]);
+  const assetMaps   = inputs.allocations.map(a => ANNUAL_RETURNS[a.id]);
   const initialTarget = inputs.allocations.map(a => a.pct / 100);
 
   // Build glidepath config (null for static mode)
   let glidepath: GlidepathConfig | null = null;
   if (inputs.allocationMode === 'glidepath' && inputs.glidepath) {
     const gp = inputs.glidepath;
-    // Map finalAllocations to the same order as assetIds
     const finalTarget = assetIds.map(id => {
       const fa = gp.finalAllocations.find(a => a.id === id);
       return fa ? fa.pct / 100 : 0;
@@ -315,39 +317,42 @@ export function runSimulations(inputs: SimulationInputs): AggregatedResults {
   }
 
   // Inflation getter
-  let getInflation: (year: number) => number;
+  let getInflation: (ymKeyVal: number) => number;
   let inflMap: Map<number, number> | undefined;
 
   if (inputs.inflationSeries === 'manual') {
     const rate = inputs.manualInflationRate / 100;
     getInflation = () => rate;
   } else {
-    inflMap = INFLATION[inputs.inflationSeries];
-    getInflation = (year: number) => inflMap!.get(year) ?? 0;
+    inflMap = INFLATION_MAPS[inputs.inflationSeries];
+    getInflation = (key: number) => inflMap!.get(key) ?? 0;
   }
 
-  // Find overlapping year range across all selected return series + inflation
-  let rangeMin = -Infinity;
-  let rangeMax =  Infinity;
+  // Find overlapping month range across all selected return series + inflation
+  let rangeMinLM = -Infinity;
+  let rangeMaxLM =  Infinity;
 
   for (const m of assetMaps) {
-    const [lo, hi] = mapYearRange(m);
-    rangeMin = Math.max(rangeMin, lo);
-    rangeMax = Math.min(rangeMax, hi);
+    const [lo, hi] = mapMonthRange(m);
+    rangeMinLM = Math.max(rangeMinLM, lo);
+    rangeMaxLM = Math.min(rangeMaxLM, hi);
   }
   if (inflMap) {
-    const [lo, hi] = mapYearRange(inflMap);
-    rangeMin = Math.max(rangeMin, lo);
-    rangeMax = Math.min(rangeMax, hi);
+    const [lo, hi] = mapMonthRange(inflMap);
+    rangeMinLM = Math.max(rangeMinLM, lo);
+    rangeMaxLM = Math.min(rangeMaxLM, hi);
   }
 
-  // Run one simulation per valid start year
-  const simulations: SimulationResult[] = [];
-  for (let y = rangeMin; y <= rangeMax - inputs.durationYears + 1; y++) {
-    simulations.push(
-      runOneSimulation(y, inputs, assetMaps, assetIds, initialTarget, glidepath, getInflation)
-    );
-  }
+  const { year: dataStartYear, month: dataStartMonth } = lmToYM(
+    isFinite(rangeMinLM) ? rangeMinLM : 0
+  );
+  const { year: dataEndYear, month: dataEndMonth } = lmToYM(
+    isFinite(rangeMaxLM) ? rangeMaxLM : 0
+  );
+
+  // Valid starts: last step (i = durationYears-1) needs inflation at (startYear+durationYears, startMonth)
+  // = startLM + 12*durationYears ≤ rangeMaxLM
+  const lastStart = rangeMaxLM - 12 * inputs.durationYears;
 
   const empty: AggregatedResults = {
     simulations: [],
@@ -369,9 +374,22 @@ export function runSimulations(inputs: SimulationInputs): AggregatedResults {
     withdrawalCVsAll:        [],
     withdrawalCVsNonZero:    [],
     sufficienciesNonZero:    [],
-    dataStartYear: rangeMin,
-    dataEndYear:   rangeMax,
+    dataStartYear,
+    dataStartMonth,
+    dataEndYear,
+    dataEndMonth,
   };
+
+  if (!isFinite(rangeMinLM) || !isFinite(rangeMaxLM) || lastStart < rangeMinLM) return empty;
+
+  // Run one simulation per valid start month
+  const simulations: SimulationResult[] = [];
+  for (let lm = rangeMinLM; lm <= lastStart; lm++) {
+    const { year, month } = lmToYM(lm);
+    simulations.push(
+      runOneSimulation(year, month, inputs, assetMaps, assetIds, initialTarget, glidepath, getInflation)
+    );
+  }
 
   if (simulations.length === 0) return empty;
 
@@ -426,7 +444,9 @@ export function runSimulations(inputs: SimulationInputs): AggregatedResults {
     withdrawalCVsAll,
     withdrawalCVsNonZero,
     sufficienciesNonZero,
-    dataStartYear: rangeMin,
-    dataEndYear:   rangeMax,
+    dataStartYear,
+    dataStartMonth,
+    dataEndYear,
+    dataEndMonth,
   };
 }

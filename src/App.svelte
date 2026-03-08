@@ -25,7 +25,7 @@
         <button class="banner-close" onclick={dismissBanner} aria-label="Dismiss">&#x2715;</button>
         <p>
           <strong>Welcome to Withdrawal Planner</strong> — a retirement withdrawal simulator that stress-tests your strategy against historical market data.
-          Configure your portfolio, withdrawal strategy, and time horizon using the <strong>input panel on the left</strong>,
+          Configure your portfolio, withdrawal strategy, and time horizon using the <strong>input panel</strong>,
           then hit <strong>Run Simulation</strong> to see results in the center of the page.
         </p>
       </div>
@@ -53,6 +53,7 @@
     display: flex;
     flex-direction: column;
     height: 100vh;
+    height: 100dvh;
   }
 
   .banner-overlay {
@@ -114,6 +115,21 @@
   .results-area {
     flex: 1;
     overflow-y: auto;
+  }
+
+  @media (max-width: 768px) {
+    .shell {
+      height: auto;
+      min-height: 100dvh;
+      overflow: visible;
+    }
+    .layout {
+      flex-direction: column;
+      overflow: visible;
+    }
+    .results-area {
+      overflow-y: visible;
+    }
   }
 
   .empty-state {

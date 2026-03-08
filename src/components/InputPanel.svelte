@@ -636,4 +636,14 @@
     text-align: center;
     font-style: italic;
   }
+
+  @media (max-width: 768px) {
+    .input-panel {
+      width: 100%;
+      height: auto;
+      overflow-y: visible;
+      border-right: none;
+      border-bottom: 1px solid #e5e7eb;
+    }
+  }
 </style>

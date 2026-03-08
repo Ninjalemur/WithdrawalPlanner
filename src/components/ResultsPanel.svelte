@@ -12,12 +12,29 @@
   let selectedSim    = $state<SimulationResult | null>(null);
   let savedScrollTop = 0;
 
-  function getScrollContainer() {
-    return document.querySelector('.results-area') as HTMLElement | null;
+  // On desktop, .results-area scrolls independently. On mobile it has overflow-y: visible
+  // so the window scrolls instead. Detect which is active by checking scrollability.
+  function resultsAreaScrollable(): boolean {
+    const el = document.querySelector('.results-area') as HTMLElement | null;
+    return !!el && el.scrollHeight > el.clientHeight + 1;
+  }
+
+  function saveScroll() {
+    savedScrollTop = resultsAreaScrollable()
+      ? (document.querySelector('.results-area') as HTMLElement).scrollTop
+      : window.scrollY;
+  }
+
+  function restoreScroll(top: number) {
+    if (resultsAreaScrollable()) {
+      (document.querySelector('.results-area') as HTMLElement).scrollTop = top;
+    } else {
+      window.scrollTo({ top, behavior: 'instant' });
+    }
   }
 
   function handleSelectSim(sim: SimulationResult) {
-    savedScrollTop = getScrollContainer()?.scrollTop ?? 0;
+    saveScroll();
     selectedSim = sim;
   }
 
@@ -28,14 +45,23 @@
     selectedSim = null;
   });
 
-  // Scroll to top when entering detail; restore position when returning to results
-  $effect(() => {
-    const container = getScrollContainer();
-    if (!container) return;
-    if (selectedSim !== null) {
-      container.scrollTop = 0;
+  function scrollToResultsTop() {
+    if (resultsAreaScrollable()) {
+      (document.querySelector('.results-area') as HTMLElement).scrollTop = 0;
     } else {
-      container.scrollTop = savedScrollTop;
+      // On mobile the window scrolls — jump to the top of .results-area, not the page top,
+      // since InputPanel sits above it.
+      const el = document.querySelector('.results-area') as HTMLElement | null;
+      window.scrollTo({ top: el?.offsetTop ?? 0, behavior: 'instant' });
+    }
+  }
+
+  // Scroll to top of results when entering detail; restore position when returning
+  $effect(() => {
+    if (selectedSim !== null) {
+      scrollToResultsTop();
+    } else {
+      restoreScroll(savedScrollTop);
     }
   });
 
@@ -458,6 +484,7 @@
   .overview-stats {
     display: flex;
     gap: 3rem;
+    flex-wrap: wrap;
     align-items: flex-start;
   }
 
@@ -586,4 +613,13 @@
 
   /* ---- chart ---- */
   .chart { width: 100%; min-height: 300px; }
+
+  @media (max-width: 768px) {
+    .results-panel {
+      padding: 1rem;
+    }
+    .overview-stats {
+      gap: 1.5rem;
+    }
+  }
 </style>

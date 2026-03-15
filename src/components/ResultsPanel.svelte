@@ -72,7 +72,8 @@
   type SuffView = 'all' | 'nonzero';
 
   let portfolioView  = $state<PortfolioView>('nominal');
-  let withdrawalView = $state<WithdrawalView>('nominal');
+  let withdrawalView     = $state<WithdrawalView>('nominal');
+  let withdrawalBandView = $state<WithdrawalView>('nominal');
   let drawdownView   = $state<DrawdownView>('nominal');
   let cvView   = $state<CVView>('all');
   let suffView = $state<SuffView>('all');
@@ -152,9 +153,11 @@
 
   // ---- Plotly chart refs ----
   let portfolioChartEl:  HTMLDivElement | undefined = $state();
-  let withdrawalChartEl: HTMLDivElement | undefined = $state();
+  let withdrawalChartEl:     HTMLDivElement | undefined = $state();
+  let withdrawalBandChartEl: HTMLDivElement | undefined = $state();
   let cvChartEl:         HTMLDivElement | undefined = $state();
   let suffChartEl:       HTMLDivElement | undefined = $state();
+  let suffBandChartEl:   HTMLDivElement | undefined = $state();
   let drawdownChartEl:   HTMLDivElement | undefined = $state();
 
   const chartConfig = { responsive: true, displayModeBar: false };
@@ -260,6 +263,45 @@
   });
 
   $effect(() => {
+    if (!withdrawalBandChartEl) return;
+    const sims = results.simulations;
+    if (sims.length === 0) return;
+    const isReal = withdrawalBandView === 'real';
+    const xs    = sims.map(s => s.startYear + (s.startMonth - 1) / 12);
+    const dates = sims.map(s => `${s.startYear}-${String(s.startMonth).padStart(2, '0')}`);
+    const stats = sims.map(s =>
+      computeStats(s.years.map(y => r3(isReal ? y.withdrawn / y.cumulativeInflationFactor : y.withdrawn)))
+    );
+    const p5  = stats.map(st => st.p5);
+    const p25 = stats.map(st => st.p25);
+    const med = stats.map(st => st.median);
+    const p75 = stats.map(st => st.p75);
+    const p95 = stats.map(st => st.p95);
+    const base = { type: 'scatter' as const, mode: 'lines' as const };
+    Plotly.react(
+      withdrawalBandChartEl,
+      [
+        { ...base, x: xs, y: p95, line: { width: 0 }, showlegend: false, hoverinfo: 'skip' as const },
+        { ...base, x: xs, y: p5,  line: { width: 0 }, fill: 'tonexty' as const, fillcolor: 'rgba(59,130,246,0.15)', name: 'P5–P95', hoverinfo: 'skip' as const },
+        { ...base, x: xs, y: p75, line: { width: 0 }, showlegend: false, hoverinfo: 'skip' as const },
+        { ...base, x: xs, y: p25, line: { width: 0 }, fill: 'tonexty' as const, fillcolor: 'rgba(59,130,246,0.35)', name: 'P25–P75', hoverinfo: 'skip' as const },
+        { ...base, x: xs, y: med, line: { color: '#3b82f6', width: 2 }, name: 'Median',
+          customdata: dates.map((d, i) => [d, p5[i], p25[i], p75[i], p95[i]]),
+          hovertemplate: '%{customdata[0]}<br>P5: $%{customdata[1]:,.0f}<br>P25: $%{customdata[2]:,.0f}<br>Median: $%{y:,.0f}<br>P75: $%{customdata[3]:,.0f}<br>P95: $%{customdata[4]:,.0f}<extra></extra>' },
+      ],
+      {
+        ...makeLayout('Withdrawal ($)'),
+        height: 350,
+        xaxis: { tickformat: '.0f', title: { text: 'Simulation start' } },
+        yaxis: { title: { text: 'Withdrawal ($)' }, tickprefix: '$', tickformat: ',.0f' },
+        showlegend: true,
+        legend: { orientation: 'h' as const, x: 0.5, xanchor: 'center' as const, y: 1.12 },
+      },
+      chartConfig,
+    );
+  });
+
+  $effect(() => {
     if (!cvChartEl) return;
     const fmtLabel = (lo: number, hi: number) => `${lo.toFixed(0)}%–${hi.toFixed(0)}%`;
     const { mids, labels, counts, size } = preBin(cvData.map(r3), fmtLabel);
@@ -293,6 +335,42 @@
         hovertemplate: '%{customdata[1]}<br>%{customdata[0]} years (%{y:.1f}%)<extra></extra>',
       }],
       { ...makeLayout('% of Years'), xaxis: { tickformat: '.0f', ticksuffix: '%' } },
+      chartConfig,
+    );
+  });
+
+  $effect(() => {
+    if (!suffBandChartEl) return;
+    const sims = results.simulations;
+    if (sims.length === 0) return;
+    const xs    = sims.map(s => s.startYear + (s.startMonth - 1) / 12);
+    const dates = sims.map(s => `${s.startYear}-${String(s.startMonth).padStart(2, '0')}`);
+    const stats = sims.map(s => computeStats(s.years.map(y => r3(y.sufficiency * 100))));
+    const p5  = stats.map(st => st.p5);
+    const p25 = stats.map(st => st.p25);
+    const med = stats.map(st => st.median);
+    const p75 = stats.map(st => st.p75);
+    const p95 = stats.map(st => st.p95);
+    const base = { type: 'scatter' as const, mode: 'lines' as const };
+    Plotly.react(
+      suffBandChartEl,
+      [
+        { ...base, x: xs, y: p95, line: { width: 0 }, showlegend: false, hoverinfo: 'skip' as const },
+        { ...base, x: xs, y: p5,  line: { width: 0 }, fill: 'tonexty' as const, fillcolor: 'rgba(59,130,246,0.15)', name: 'P5–P95', hoverinfo: 'skip' as const },
+        { ...base, x: xs, y: p75, line: { width: 0 }, showlegend: false, hoverinfo: 'skip' as const },
+        { ...base, x: xs, y: p25, line: { width: 0 }, fill: 'tonexty' as const, fillcolor: 'rgba(59,130,246,0.35)', name: 'P25–P75', hoverinfo: 'skip' as const },
+        { ...base, x: xs, y: med, line: { color: '#3b82f6', width: 2 }, name: 'Median',
+          customdata: dates.map((d, i) => [d, p5[i], p25[i], p75[i], p95[i]]),
+          hovertemplate: '%{customdata[0]}<br>P5: %{customdata[1]:.1f}%<br>P25: %{customdata[2]:.1f}%<br>Median: %{y:.1f}%<br>P75: %{customdata[3]:.1f}%<br>P95: %{customdata[4]:.1f}%<extra></extra>' },
+      ],
+      {
+        ...makeLayout('Sufficiency (%)'),
+        height: 350,
+        xaxis: { tickformat: '.0f', title: { text: 'Simulation start' } },
+        yaxis: { title: { text: 'Sufficiency (%)' }, ticksuffix: '%', tickformat: '.0f' },
+        showlegend: true,
+        legend: { orientation: 'h' as const, x: 0.5, xanchor: 'center' as const, y: 1.12 },
+      },
       chartConfig,
     );
   });
@@ -399,7 +477,7 @@
   <!-- Annual Withdrawals -->
   <div class="card">
     <div class="section-header">
-      <h2>Annual Withdrawals</h2>
+      <h2>Annual Withdrawals (Pooled)</h2>
       <div class="toggle-group">
         <button class:active={withdrawalView === 'nominal'} onclick={() => withdrawalView = 'nominal'}>Nominal</button>
         <button class:active={withdrawalView === 'real'}    onclick={() => withdrawalView = 'real'}>Real</button>
@@ -429,6 +507,25 @@
       </table>
     </div>
     <div bind:this={withdrawalChartEl} class="chart"></div>
+  </div>
+
+  <!-- Annual Withdrawals by Simulation -->
+  <div class="card">
+    <div class="section-header">
+      <h2>Annual Withdrawals by Simulation</h2>
+      <div class="toggle-group">
+        <button class:active={withdrawalBandView === 'nominal'} onclick={() => withdrawalBandView = 'nominal'}>Nominal</button>
+        <button class:active={withdrawalBandView === 'real'}    onclick={() => withdrawalBandView = 'real'}>Real</button>
+      </div>
+    </div>
+    {#if withdrawalBandView === 'real'}
+      <p class="view-note">Values in start-year dollars (each simulation deflated to its own base year).</p>
+    {/if}
+    <p class="view-note">
+      Median yearly withdrawal per simulation (line), with P25–P75 (dark band) and P5–P95 (light band),
+      plotted by simulation start date.
+    </p>
+    <div bind:this={withdrawalBandChartEl} class="chart"></div>
   </div>
 
   <!-- Withdrawal Variability -->
@@ -470,7 +567,7 @@
   <!-- Withdrawal Sufficiency -->
   <div class="card">
     <div class="section-header">
-      <h2>Withdrawal Sufficiency</h2>
+      <h2>Withdrawal Sufficiency (Pooled)</h2>
       <div class="toggle-group">
         <button class:active={suffView === 'all'}     onclick={() => suffView = 'all'}>Inc. depleted years</button>
         <button class:active={suffView === 'nonzero'} onclick={() => suffView = 'nonzero'}>Exc. depleted years</button>
@@ -502,6 +599,18 @@
       </table>
     </div>
     <div bind:this={suffChartEl} class="chart"></div>
+  </div>
+
+  <!-- Withdrawal Sufficiency by Simulation -->
+  <div class="card">
+    <div class="section-header">
+      <h2>Withdrawal Sufficiency by Simulation</h2>
+    </div>
+    <p class="view-note">
+      Median yearly sufficiency per simulation (line), with P25–P75 (dark band) and P5–P95 (light band),
+      plotted by simulation start date. Shows how within-simulation variation and trends shift over time.
+    </p>
+    <div bind:this={suffBandChartEl} class="chart"></div>
   </div>
 
   <!-- Withdrawal Max Drawdown -->

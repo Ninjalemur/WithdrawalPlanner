@@ -7,7 +7,7 @@
   }
   let { results, onselect }: Props = $props();
 
-  type SortKey = 'year' | 'survival' | 'endValue' | 'avgSufficiency' | 'maxDrawdownNominal' | 'maxDrawdownReal';
+  type SortKey = 'year' | 'survival' | 'endValue' | 'avgSufficiency' | 'maxDrawdownNominal' | 'maxDrawdownReal' | 'withdrawalVariabilityAll' | 'withdrawalVariabilityNonZero';
   type SortDir = 'asc' | 'desc';
 
   interface SortField { key: SortKey; dir: SortDir; }
@@ -17,8 +17,10 @@
     survival:            'Survived',
     endValue:            'End Value',
     avgSufficiency:      'Avg Sufficiency',
-    maxDrawdownNominal:  'Max DD (Nominal)',
-    maxDrawdownReal:     'Max DD (Real)',
+    maxDrawdownNominal:          'Max DD (Nominal)',
+    maxDrawdownReal:             'Max DD (Real)',
+    withdrawalVariabilityAll:    'Variability (Inc.)',
+    withdrawalVariabilityNonZero:'Variability (Exc.)',
   };
 
   const DEFAULT_DIR: Record<SortKey, SortDir> = {
@@ -26,11 +28,13 @@
     survival:            'desc',
     endValue:            'desc',
     avgSufficiency:      'desc',
-    maxDrawdownNominal:  'asc',   // least severe (closest to 0) first by default
-    maxDrawdownReal:     'asc',
+    maxDrawdownNominal:           'asc',   // least severe (closest to 0) first by default
+    maxDrawdownReal:              'asc',
+    withdrawalVariabilityAll:     'asc',   // least variable (most stable) first by default
+    withdrawalVariabilityNonZero: 'asc',
   };
 
-  const ALL_KEYS: SortKey[] = ['year', 'survival', 'endValue', 'avgSufficiency', 'maxDrawdownNominal', 'maxDrawdownReal'];
+  const ALL_KEYS: SortKey[] = ['year', 'survival', 'endValue', 'avgSufficiency', 'maxDrawdownNominal', 'maxDrawdownReal', 'withdrawalVariabilityAll', 'withdrawalVariabilityNonZero'];
 
   const STORAGE_KEY = 'sim-sort';
 
@@ -97,8 +101,10 @@
     if (key === 'avgSufficiency')     return sim.years.length > 0
       ? sim.years.reduce((s, y) => s + y.sufficiency, 0) / sim.years.length
       : 0;
-    if (key === 'maxDrawdownNominal') return sim.maxDrawdownNominal;
-    if (key === 'maxDrawdownReal')    return sim.maxDrawdownReal;
+    if (key === 'maxDrawdownNominal')           return sim.maxDrawdownNominal;
+    if (key === 'maxDrawdownReal')              return sim.maxDrawdownReal;
+    if (key === 'withdrawalVariabilityAll')     return sim.withdrawalCVAll;
+    if (key === 'withdrawalVariabilityNonZero') return sim.withdrawalCVNonZero;
     return 0;
   }
 
@@ -112,10 +118,12 @@
     })
   );
 
-  let showEndValue  = $derived(isActive('endValue'));
-  let showAvgSuff   = $derived(isActive('avgSufficiency'));
-  let showDDNom     = $derived(isActive('maxDrawdownNominal'));
-  let showDDReal    = $derived(isActive('maxDrawdownReal'));
+  let showEndValue      = $derived(isActive('endValue'));
+  let showAvgSuff       = $derived(isActive('avgSufficiency'));
+  let showDDNom         = $derived(isActive('maxDrawdownNominal'));
+  let showDDReal        = $derived(isActive('maxDrawdownReal'));
+  let showVarAll        = $derived(isActive('withdrawalVariabilityAll'));
+  let showVarNonZero    = $derived(isActive('withdrawalVariabilityNonZero'));
 
   const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   const fmtPeriod = (year: number, month: number) => `${year} ${MONTHS[month - 1]}`;
@@ -175,6 +183,8 @@
           {#if showAvgSuff}<th>Avg Sufficiency</th>{/if}
           {#if showDDNom}<th>Max DD (Nominal)</th>{/if}
           {#if showDDReal}<th>Max DD (Real)</th>{/if}
+          {#if showVarAll}<th>Variability (Inc.)</th>{/if}
+          {#if showVarNonZero}<th>Variability (Exc.)</th>{/if}
           <th></th>
         </tr>
       </thead>
@@ -200,6 +210,8 @@
             {#if showAvgSuff}<td>{avgSuffFmt(sim)}</td>{/if}
             {#if showDDNom}<td>{(sim.maxDrawdownNominal * 100).toFixed(1)}%</td>{/if}
             {#if showDDReal}<td>{(sim.maxDrawdownReal * 100).toFixed(1)}%</td>{/if}
+            {#if showVarAll}<td>{(sim.withdrawalCVAll * 100).toFixed(1)}%</td>{/if}
+            {#if showVarNonZero}<td>{(sim.withdrawalCVNonZero * 100).toFixed(1)}%</td>{/if}
             <td class="arrow-cell">›</td>
           </tr>
         {/each}

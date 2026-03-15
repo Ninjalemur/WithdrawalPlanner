@@ -14,7 +14,7 @@ export interface MonthlyDataSeries {
   id: string;
   /** Human-readable name shown in the UI */
   label: string;
-  category: 'returns' | 'inflation';
+  category: 'returns' | 'inflation' | 'indicator';
   /** Name of the organisation or publication providing the data */
   source: string;
   /** URL of the source page */

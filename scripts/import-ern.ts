@@ -17,6 +17,7 @@ const CSV_PATH  = 'g:/Downloads/ERN_assets.csv';
 const OUT_SP500 = 'src/data/raw/returns/sp500.ts';
 const OUT_TBOND = 'src/data/raw/returns/tbond.ts';
 const OUT_GOLD  = 'src/data/raw/returns/gold.ts';
+const OUT_CAPE  = 'src/data/raw/indicators/cape.ts';
 
 // ---------------------------------------------------------------------------
 // Parse CSV
@@ -28,6 +29,7 @@ interface Row {
   spx:    number;
   tbond:  number;
   gold:   number;
+  cape:   number;
 }
 
 function parseNum(s: string): number {
@@ -44,13 +46,14 @@ for (let i = 1; i < lines.length; i++) {
   // Format: month,year,spx,tbond,gold  where later fields may be "1,234.56"
   // Use a simple regex split that respects quoted fields
   const cols = line.match(/(".*?"|[^,]+)(?=,|$)/g);
-  if (!cols || cols.length < 5) continue;
+  if (!cols || cols.length < 6) continue;
   rows.push({
     month: parseInt(cols[0]),
     year:  parseInt(cols[1]),
     spx:   parseNum(cols[2]),
     tbond: parseNum(cols[3]),
     gold:  parseNum(cols[4]),
+    cape:  parseNum(cols[5]),
   });
 }
 
@@ -74,8 +77,12 @@ for (let i = 0; i < rows.length - 1; i++) {
   goldPoints .push({ year: cur.year, month: cur.month, value: (next.gold  - cur.gold)  / cur.gold  });
 }
 
+// CAPE is a direct value per month (not a return — no differencing needed)
+const capePoints: Point[] = rows.map(r => ({ year: r.year, month: r.month, value: r.cape }));
+
 console.log(`Computed ${spxPoints.length} monthly returns`);
 console.log(`  First: ${spxPoints[0].year}-${spxPoints[0].month}, Last: ${spxPoints[spxPoints.length-1].year}-${spxPoints[spxPoints.length-1].month}`);
+console.log(`Parsed ${capePoints.length} CAPE values`);
 
 // ---------------------------------------------------------------------------
 // Emit TypeScript files
@@ -84,6 +91,12 @@ console.log(`  First: ${spxPoints[0].year}-${spxPoints[0].month}, Last: ${spxPoi
 function toEntries(points: Point[]): string {
   return points
     .map(p => `    { year: ${p.year}, month: ${String(p.month).padStart(2, ' ')}, value: ${p.value.toFixed(8)} },`)
+    .join('\n');
+}
+
+function toEntriesCape(points: Point[]): string {
+  return points
+    .map(p => `    { year: ${p.year}, month: ${String(p.month).padStart(2, ' ')}, value: ${p.value.toFixed(4)} },`)
     .join('\n');
 }
 
@@ -169,5 +182,30 @@ ${toEntries(goldPoints)}
 };
 `, 'utf8');
 console.log(`Written: ${OUT_GOLD}`);
+
+// --- CAPE ---
+writeFileSync(OUT_CAPE, `import type { MonthlyDataSeries } from '../../types';
+
+// Monthly CAPE (Cyclically Adjusted Price-to-Earnings) ratio, aka Shiller P/E 10.
+// Values are raw ratios (e.g. 25.3 = CAPE of 25.3), not percentages or decimals.
+//
+// Source: Early Retirement Now – SWR Toolbox spreadsheet (Karsten Jeske)
+//   https://earlyretirementnow.com/2017/01/25/the-ultimate-guide-to-safe-withdrawal-rates-part-7-toolbox/
+// Underlying data: Robert Shiller (Yale) – http://www.econ.yale.edu/~shiller/data.htm
+// Retrieved: 2026-03-15
+${coverageComment(capePoints)}
+export const cape: MonthlyDataSeries = {
+  id: 'cape',
+  label: 'CAPE (Shiller P/E 10)',
+  category: 'indicator',
+  source: 'Early Retirement Now (Karsten Jeske) / Robert Shiller (Yale)',
+  sourceUrl: 'https://earlyretirementnow.com/2017/01/25/the-ultimate-guide-to-safe-withdrawal-rates-part-7-toolbox/',
+  retrievedDate: '2026-03-15',
+  values: [
+${toEntriesCape(capePoints)}
+  ],
+};
+`, 'utf8');
+console.log(`Written: ${OUT_CAPE}`);
 
 console.log('Done.');

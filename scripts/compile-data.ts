@@ -12,6 +12,7 @@
  *   src/data/compiled/inflation/us.ts     — YoY inflation Maps (direct copy, Map format)
  *   src/data/compiled/inflation/singapore.ts
  *   src/data/compiled/sp500Index.ts       — cumulative price index + running ATH
+ *   src/data/compiled/indicators/cape.ts  — CAPE ratio Map (direct, no compounding)
  */
 
 import { sp500 }             from '../src/data/raw/returns/sp500';
@@ -19,6 +20,7 @@ import { tbond }             from '../src/data/raw/returns/tbond';
 import { gold }              from '../src/data/raw/returns/gold';
 import { usInflation }       from '../src/data/raw/inflation/us';
 import { singaporeInflation } from '../src/data/raw/inflation/singapore';
+import { cape }              from '../src/data/raw/indicators/cape';
 import type { MonthlyDataPoint } from '../src/data/types';
 import { writeFileSync } from 'fs';
 
@@ -178,6 +180,16 @@ writeReturnFile(
   'singaporeInflationMap',
   sgInflMap,
   'Each key is YYYYMM; value is the YoY CPI rate for that month.',
+);
+
+// CAPE indicator
+const capeMap = compileInflation(cape.values); // direct YYYYMM → value Map (no compounding)
+
+writeReturnFile(
+  'src/data/compiled/indicators/cape.ts',
+  'capeValues',
+  capeMap,
+  'Each key is YYYYMM; value is the CAPE (Shiller P/E 10) ratio for that month.',
 );
 
 // S&P 500 price index + ATH

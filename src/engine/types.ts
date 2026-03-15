@@ -1,7 +1,7 @@
 export interface YearResult {
   calendarYear: number;
   calendarMonth: number;              // start month of this annual step (same as SimulationResult.startMonth)
-  portfolioBeforeWithdrawal: number; // after returns applied, before withdrawal
+  portfolioBeforeWithdrawal: number; // value at start of year, before withdrawal (and before returns)
   desiredExpense: number;            // inflation-adjusted target withdrawal
   withdrawn: number;                 // actual amount withdrawn
   sufficiency: number;               // withdrawn / desiredExpense: 1.0 = 100% (exactly met), 0 = nothing withdrawn, 2.0 = double desired

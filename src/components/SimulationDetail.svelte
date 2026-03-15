@@ -294,6 +294,11 @@
   <!-- Year-by-Year Table -->
   <div class="card">
     <h2>Year-by-Year Data</h2>
+    <p class="view-note">
+      Each year: <strong>Portfolio Before</strong> is the value at the start of the year.
+      The <strong>withdrawal</strong> is taken first, then the year's return is applied to the
+      remaining balance to give <strong>Portfolio After</strong>.
+    </p>
     <div class="table-wrap">
       <table>
         <thead>

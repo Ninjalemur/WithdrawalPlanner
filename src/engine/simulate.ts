@@ -211,10 +211,7 @@ function runOneSimulation(
 
     const desiredExpense = initialDesired * cumInflation;
 
-    // Apply precomputed 12-month compound return for this step
-    for (let j = 0; j < assetMaps.length; j++) {
-      assetValues[j] *= 1 + (assetMaps[j].get(stepKey) ?? 0);
-    }
+    // Withdrawal-first model: snapshot portfolio, take withdrawal, then apply returns to remainder
     const portfolioBeforeWithdrawal = assetValues.reduce((s, v) => s + v, 0);
 
     // Determine withdrawal
@@ -224,25 +221,29 @@ function runOneSimulation(
         : portfolioBeforeWithdrawal * (withdrawalPct / 100);
 
     let withdrawn: number;
-    let portfolioAfter: number;
+    let portfolioAfterWithdrawal: number;
 
     if (failed || portfolioBeforeWithdrawal <= 0) {
       withdrawn = 0;
-      portfolioAfter = 0;
+      portfolioAfterWithdrawal = 0;
       failed = true;
     } else if (portfolioBeforeWithdrawal < targetWithdrawal) {
       withdrawn = portfolioBeforeWithdrawal;
-      portfolioAfter = 0;
+      portfolioAfterWithdrawal = 0;
       failed = true;
     } else {
       withdrawn = targetWithdrawal;
-      portfolioAfter = portfolioBeforeWithdrawal - withdrawn;
+      portfolioAfterWithdrawal = portfolioBeforeWithdrawal - withdrawn;
     }
 
     const sufficiency = desiredExpense > 0 ? withdrawn / desiredExpense : 0;
 
-    // Rebalance to current target allocation
-    assetValues = currentTarget.map(a => a * portfolioAfter);
+    // Rebalance to post-withdrawal amount, then apply precomputed 12-month compound return
+    assetValues = currentTarget.map(a => a * portfolioAfterWithdrawal);
+    for (let j = 0; j < assetMaps.length; j++) {
+      assetValues[j] *= 1 + (assetMaps[j].get(stepKey) ?? 0);
+    }
+    const portfolioAfter = assetValues.reduce((s, v) => s + v, 0);
 
     years.push({
       calendarYear: calYear,

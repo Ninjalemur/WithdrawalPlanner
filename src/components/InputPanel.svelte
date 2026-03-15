@@ -38,12 +38,26 @@
   let portfolioValueStr  = $state('1,000,000');
   let portfolioValue     = $derived(parseFmt(portfolioValueStr));
 
-  let strategy    = $state<'constant-dollar' | 'percent-of-portfolio'>('constant-dollar');
+  let strategy    = $state<'constant-dollar' | 'percent-of-portfolio' | 'cape'>('constant-dollar');
   let constMode   = $state<'amount' | 'pct-of-initial'>('amount');
   let withdrawalAmountStr = $state('40,000');
   let withdrawalAmountNum = $derived(parseFmt(withdrawalAmountStr));
   let constPct    = $state(4);
   let withdrawalPct = $state(4);
+  let capeBasePct    = $state(1.5);
+  let capeMultiplier = $state(0.5);
+
+  // Bounds (percent-of-portfolio and cape only)
+  let floorEnabled    = $state(false);
+  let ceilEnabled     = $state(false);
+  // Percent-of-portfolio: always dollar
+  let pctFloorValue   = $state(20000);
+  let pctCeilValue    = $state(100000);
+  // CAPE: pct or dollar
+  let floorType       = $state<'pct' | 'dollar'>('pct');
+  let floorValue      = $state(2);
+  let ceilType        = $state<'pct' | 'dollar'>('pct');
+  let ceilValue       = $state(6);
 
   let inflation         = $state<'inflation-us' | 'inflation-singapore' | 'manual'>('inflation-us');
   let manualInflationPct = $state(3);
@@ -76,8 +90,36 @@
   );
 
   let withdrawalInvalid = $derived(
-    (strategy === 'constant-dollar' && effectiveWithdrawalAmount <= 0) ||
-    (strategy === 'percent-of-portfolio' && withdrawalPct <= 0)
+    (strategy === 'constant-dollar'      && effectiveWithdrawalAmount <= 0) ||
+    (strategy === 'percent-of-portfolio' && withdrawalPct <= 0) ||
+    (strategy === 'cape'                 && (capeBasePct < 0 || capeMultiplier <= 0))
+  );
+
+  // Bounds conflict for percent-of-portfolio (always dollar, hard block only)
+  let boundsHardConflict = $derived(
+    floorEnabled && ceilEnabled && (
+      strategy === 'percent-of-portfolio'
+        ? pctFloorValue > pctCeilValue
+        : (floorType === ceilType && floorValue > ceilValue)
+    )
+  );
+
+  // Cross-type soft warning (CAPE only — pct-of-portfolio can't have cross-type conflict)
+  let floorDollarAtStart = $derived(
+    floorEnabled && strategy === 'cape'
+      ? (floorType === 'pct' ? portfolioValue * floorValue / 100 : floorValue)
+      : 0
+  );
+  let ceilDollarAtStart = $derived(
+    ceilEnabled && strategy === 'cape'
+      ? (ceilType === 'pct' ? portfolioValue * ceilValue / 100 : ceilValue)
+      : Infinity
+  );
+  let boundsSoftConflict = $derived(
+    strategy === 'cape' &&
+    floorEnabled && ceilEnabled &&
+    floorType !== ceilType &&
+    floorDollarAtStart > ceilDollarAtStart
   );
 
   let isValid = $derived(
@@ -86,6 +128,7 @@
     portfolioValue > 0 &&
     durationYears >= 1 &&
     !withdrawalInvalid &&
+    !boundsHardConflict &&
     (allocationMode === 'static' || (finalAllocationSum === 100 && glideStepSize > 0))
   );
 
@@ -97,6 +140,8 @@
   $effect(() => {
     portfolioValueStr;
     strategy; constMode; withdrawalAmountStr; constPct; withdrawalPct;
+    capeBasePct; capeMultiplier;
+    floorEnabled; pctFloorValue; pctCeilValue; ceilEnabled; floorType; floorValue; ceilType; ceilValue;
     inflation; manualInflationPct; durationYears;
     assets.forEach(a => { a.enabled; a.pct; });
     allocationMode; glideStepCondition; glideStepSize; glideAthThreshold;
@@ -128,6 +173,10 @@
       strategy,
       withdrawalAmount: effectiveWithdrawalAmount,
       withdrawalPct,
+      capeBasePct,
+      capeMultiplier,
+      withdrawalFloor:   floorEnabled ? (strategy === 'percent-of-portfolio' ? { type: 'dollar', value: pctFloorValue } : { type: floorType, value: floorValue }) : null,
+      withdrawalCeiling: ceilEnabled  ? (strategy === 'percent-of-portfolio' ? { type: 'dollar', value: pctCeilValue  } : { type: ceilType,  value: ceilValue  }) : null,
       inflationSeries: inflation,
       manualInflationRate: manualInflationPct,
       durationYears,
@@ -258,6 +307,7 @@
     <select bind:value={strategy}>
       <option value="constant-dollar">Constant dollar</option>
       <option value="percent-of-portfolio">Percent of portfolio</option>
+      <option value="cape">CAPE (Shiller)</option>
     </select>
 
     {#if strategy === 'constant-dollar'}
@@ -297,7 +347,7 @@
         </label>
         <p class="derived-hint">= ${fmt(effectiveWithdrawalAmount)} / yr</p>
       {/if}
-    {:else}
+    {:else if strategy === 'percent-of-portfolio'}
       <label class="field">
         <span>Annual withdrawal</span>
         <div class="input-adorn">
@@ -305,6 +355,95 @@
           <span class="adorn-right">%</span>
         </div>
       </label>
+    {:else}
+      <label class="field">
+        <span>Base rate</span>
+        <div class="input-adorn">
+          <input type="number" min="0" step="0.1" bind:value={capeBasePct} />
+          <span class="adorn-right">%</span>
+        </div>
+      </label>
+      <label class="field">
+        <span>CAPE multiplier</span>
+        <input type="number" min="0" step="0.1" bind:value={capeMultiplier} />
+      </label>
+      <p class="derived-hint">Rate = base + multiplier ÷ CAPE. E.g. at CAPE 25: {(capeBasePct + capeMultiplier / 25).toFixed(2)}%</p>
+    {/if}
+
+    {#if strategy === 'percent-of-portfolio'}
+      <div class="bound-row">
+        <label class="checkbox-label">
+          <input type="checkbox" bind:checked={floorEnabled} /> Min withdrawal (floor)
+        </label>
+        {#if floorEnabled}
+          <div class="input-adorn">
+            <span class="adorn-left">$</span>
+            <input type="number" min="0" step="1000" bind:value={pctFloorValue} />
+          </div>
+          <p class="bound-note">Inflation-adjusted — grows with CPI each year.</p>
+        {/if}
+      </div>
+      <div class="bound-row">
+        <label class="checkbox-label">
+          <input type="checkbox" bind:checked={ceilEnabled} /> Max withdrawal (ceiling)
+        </label>
+        {#if ceilEnabled}
+          <div class="input-adorn">
+            <span class="adorn-left">$</span>
+            <input type="number" min="0" step="1000" bind:value={pctCeilValue} />
+          </div>
+          <p class="bound-note">Inflation-adjusted — grows with CPI each year.</p>
+        {/if}
+      </div>
+    {:else if strategy === 'cape'}
+      <div class="bound-row">
+        <label class="checkbox-label">
+          <input type="checkbox" bind:checked={floorEnabled} /> Min withdrawal (floor)
+        </label>
+        {#if floorEnabled}
+          <div class="radio-group sub-radio">
+            <label><input type="radio" bind:group={floorType} value="pct" /> % of portfolio</label>
+            <label><input type="radio" bind:group={floorType} value="dollar" /> $ (inflation-adj.)</label>
+          </div>
+          <div class="input-adorn">
+            {#if floorType === 'dollar'}<span class="adorn-left">$</span>{/if}
+            <input type="number" min="0" step={floorType === 'pct' ? 0.1 : 1000} bind:value={floorValue} />
+            {#if floorType === 'pct'}<span class="adorn-right">%</span>{/if}
+          </div>
+        {/if}
+      </div>
+      <div class="bound-row">
+        <label class="checkbox-label">
+          <input type="checkbox" bind:checked={ceilEnabled} /> Max withdrawal (ceiling)
+        </label>
+        {#if ceilEnabled}
+          <div class="radio-group sub-radio">
+            <label><input type="radio" bind:group={ceilType} value="pct" /> % of portfolio</label>
+            <label><input type="radio" bind:group={ceilType} value="dollar" /> $ (inflation-adj.)</label>
+          </div>
+          <div class="input-adorn">
+            {#if ceilType === 'dollar'}<span class="adorn-left">$</span>{/if}
+            <input type="number" min="0" step={ceilType === 'pct' ? 0.1 : 1000} bind:value={ceilValue} />
+            {#if ceilType === 'pct'}<span class="adorn-right">%</span>{/if}
+          </div>
+        {/if}
+      </div>
+    {/if}
+
+    {#if boundsHardConflict}
+      <p class="error-msg">
+        {#if strategy === 'percent-of-portfolio'}
+          Floor (${fmt(pctFloorValue)}) exceeds ceiling (${fmt(pctCeilValue)}) — adjust bounds before running.
+        {:else}
+          Floor ({floorType === 'pct' ? floorValue + '%' : '$' + fmt(floorValue)}) exceeds ceiling
+          ({ceilType === 'pct' ? ceilValue + '%' : '$' + fmt(ceilValue)}) — adjust bounds before running.
+        {/if}
+      </p>
+    {:else if boundsSoftConflict}
+      <p class="warn-msg">
+        Floor (${fmt(floorDollarAtStart)}) exceeds ceiling (${fmt(ceilDollarAtStart)}) at current
+        portfolio value — floor will take priority each year.
+      </p>
     {/if}
 
     {#if withdrawalInvalid}
@@ -445,8 +584,22 @@
 
   .error-msg {
     margin: 0;
-    font-size: 0.8rem;
+    font-size: 0.75rem;
     color: #ef4444;
+    background: #fef2f2;
+    border: 1px solid #fca5a5;
+    border-radius: 4px;
+    padding: 0.5rem 0.625rem;
+  }
+
+  .warn-msg {
+    margin: 0;
+    font-size: 0.75rem;
+    color: #92400e;
+    background: #fffbeb;
+    border: 1px solid #fcd34d;
+    border-radius: 4px;
+    padding: 0.5rem 0.625rem;
   }
 
   /* ---- static allocation rows ---- */
@@ -602,6 +755,30 @@
   .sub-radio {
     padding-left: 1.25rem;
     border-left: 2px solid #e5e7eb;
+  }
+
+  .bound-row {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    margin-top: 0.5rem;
+  }
+
+  .bound-note {
+    margin: 0;
+    font-size: 0.7rem;
+    color: #9ca3af;
+    font-style: italic;
+  }
+
+  .checkbox-label {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: #374151;
+    cursor: pointer;
   }
 
   /* ---- select ---- */

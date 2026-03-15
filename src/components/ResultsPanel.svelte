@@ -157,8 +157,9 @@
   let withdrawalBandChartEl: HTMLDivElement | undefined = $state();
   let cvChartEl:         HTMLDivElement | undefined = $state();
   let suffChartEl:       HTMLDivElement | undefined = $state();
-  let suffBandChartEl:   HTMLDivElement | undefined = $state();
-  let drawdownChartEl:   HTMLDivElement | undefined = $state();
+  let suffBandChartEl:       HTMLDivElement | undefined = $state();
+  let drawdownChartEl:       HTMLDivElement | undefined = $state();
+  let wRateBandChartEl:      HTMLDivElement | undefined = $state();
 
   const chartConfig = { responsive: true, displayModeBar: false };
   const r3 = (v: number) => Math.round(v * 1000) / 1000;
@@ -376,6 +377,46 @@
   });
 
   $effect(() => {
+    if (!wRateBandChartEl) return;
+    const sims = results.simulations;
+    if (sims.length === 0) return;
+    const xs    = sims.map(s => s.startYear + (s.startMonth - 1) / 12);
+    const dates = sims.map(s => `${s.startYear}-${String(s.startMonth).padStart(2, '0')}`);
+    const stats = sims.map(s =>
+      computeStats(s.years.map(y =>
+        r3(y.portfolioBeforeWithdrawal > 0 ? (y.withdrawn / y.portfolioBeforeWithdrawal) * 100 : 0)
+      ))
+    );
+    const p5  = stats.map(st => st.p5);
+    const p25 = stats.map(st => st.p25);
+    const med = stats.map(st => st.median);
+    const p75 = stats.map(st => st.p75);
+    const p95 = stats.map(st => st.p95);
+    const base = { type: 'scatter' as const, mode: 'lines' as const };
+    Plotly.react(
+      wRateBandChartEl,
+      [
+        { ...base, x: xs, y: p95, line: { width: 0 }, showlegend: false, hoverinfo: 'skip' as const },
+        { ...base, x: xs, y: p5,  line: { width: 0 }, fill: 'tonexty' as const, fillcolor: 'rgba(139,92,246,0.15)', name: 'P5–P95', hoverinfo: 'skip' as const },
+        { ...base, x: xs, y: p75, line: { width: 0 }, showlegend: false, hoverinfo: 'skip' as const },
+        { ...base, x: xs, y: p25, line: { width: 0 }, fill: 'tonexty' as const, fillcolor: 'rgba(139,92,246,0.35)', name: 'P25–P75', hoverinfo: 'skip' as const },
+        { ...base, x: xs, y: med, line: { color: '#8b5cf6', width: 2 }, name: 'Median',
+          customdata: dates.map((d, i) => [d, p5[i], p25[i], p75[i], p95[i]]),
+          hovertemplate: '%{customdata[0]}<br>P5: %{customdata[1]:.2f}%<br>P25: %{customdata[2]:.2f}%<br>Median: %{y:.2f}%<br>P75: %{customdata[3]:.2f}%<br>P95: %{customdata[4]:.2f}%<extra></extra>' },
+      ],
+      {
+        ...makeLayout('Withdrawal Rate (%)'),
+        height: 350,
+        xaxis: { tickformat: '.0f', title: { text: 'Simulation start' } },
+        yaxis: { title: { text: 'Withdrawal Rate (%)' }, ticksuffix: '%', tickformat: '.1f' },
+        showlegend: true,
+        legend: { orientation: 'h' as const, x: 0.5, xanchor: 'center' as const, y: 1.12 },
+      },
+      chartConfig,
+    );
+  });
+
+  $effect(() => {
     if (!drawdownChartEl) return;
     const total = drawdownData.length;
     const BIN_SIZE = 5;
@@ -411,7 +452,7 @@
 </script>
 
 {#if selectedSim}
-  <SimulationDetail sim={selectedSim} onback={() => { selectedSim = null; }} />
+  <SimulationDetail sim={selectedSim} strategy={results.strategy} onback={() => { selectedSim = null; }} />
 {:else}
 <div class="results-panel">
 
@@ -646,6 +687,16 @@
       </table>
     </div>
     <div bind:this={drawdownChartEl} class="chart"></div>
+  </div>
+
+  <!-- Withdrawal Rate by Simulation -->
+  <div class="card">
+    <h2>Withdrawal Rate by Simulation</h2>
+    <p class="view-note">
+      Median yearly withdrawal rate per simulation (line), with P25–P75 (dark band) and P5–P95 (light band),
+      plotted by simulation start date. Rate = annual withdrawal ÷ portfolio value at start of year.
+    </p>
+    <div bind:this={wRateBandChartEl} class="chart"></div>
   </div>
 
   <!-- Simulation list -->

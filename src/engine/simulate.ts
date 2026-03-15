@@ -5,6 +5,7 @@ import { goldAnnualReturns  } from '../data/compiled/returns/gold';
 import { usInflationMap        } from '../data/compiled/inflation/us';
 import { singaporeInflationMap } from '../data/compiled/inflation/singapore';
 import { sp500PriceIndex, sp500RunningATH } from '../data/compiled/sp500Index';
+import { capeValues } from '../data/compiled/indicators/cape';
 import type {
   AggregatedResults,
   PercentileStats,
@@ -176,12 +177,15 @@ function runOneSimulation(
   glidepath:     GlidepathConfig | null,
   getInflation:  (ymKeyVal: number) => number,
 ): SimulationResult {
-  const { portfolioValue: initialPortfolio, durationYears, strategy, withdrawalAmount, withdrawalPct } = inputs;
+  const {
+    portfolioValue: initialPortfolio, durationYears, strategy,
+    withdrawalAmount, withdrawalPct, capeBasePct, capeMultiplier,
+    withdrawalFloor, withdrawalCeiling,
+  } = inputs;
 
-  const initialDesired =
-    strategy === 'constant-dollar'
-      ? withdrawalAmount
-      : initialPortfolio * (withdrawalPct / 100);
+  // For constant-dollar, initialDesired is fixed upfront.
+  // For pct-of-portfolio and cape, it is captured from the first year's formula result.
+  let initialDesired = strategy === 'constant-dollar' ? withdrawalAmount : 0;
 
   let currentTarget = [...initialTarget];
   let assetValues = currentTarget.map(a => a * initialPortfolio);
@@ -209,16 +213,45 @@ function runOneSimulation(
       }
     }
 
-    const desiredExpense = initialDesired * cumInflation;
-
     // Withdrawal-first model: snapshot portfolio, take withdrawal, then apply returns to remainder
     const portfolioBeforeWithdrawal = assetValues.reduce((s, v) => s + v, 0);
 
-    // Determine withdrawal
-    const targetWithdrawal =
-      strategy === 'constant-dollar'
-        ? desiredExpense
-        : portfolioBeforeWithdrawal * (withdrawalPct / 100);
+    // Compute the formula withdrawal for this year (what the strategy says to withdraw)
+    let formulaWithdrawal: number;
+    if (strategy === 'constant-dollar') {
+      formulaWithdrawal = initialDesired * cumInflation;
+    } else if (strategy === 'cape') {
+      const capeVal = capeValues.get(stepKey) ?? 17; // 17 = historical median fallback
+      formulaWithdrawal = portfolioBeforeWithdrawal * (capeBasePct / 100 + capeMultiplier / capeVal);
+    } else {
+      formulaWithdrawal = portfolioBeforeWithdrawal * (withdrawalPct / 100);
+    }
+
+    // For variable strategies, capture the first-year formula result as the real benchmark
+    if (i === 0 && strategy !== 'constant-dollar') {
+      initialDesired = formulaWithdrawal;
+    }
+
+    // desiredExpense = first-year withdrawal inflated — the real benchmark for sufficiency
+    const desiredExpense = initialDesired * cumInflation;
+
+    // Apply floor/ceiling bounds (variable strategies only); floor wins when lo > hi
+    let targetWithdrawal = formulaWithdrawal;
+    let boundsConflict = false;
+    if (strategy !== 'constant-dollar' && (withdrawalFloor || withdrawalCeiling)) {
+      const lo = withdrawalFloor
+        ? (withdrawalFloor.type === 'pct'
+            ? portfolioBeforeWithdrawal * withdrawalFloor.value / 100
+            : withdrawalFloor.value * cumInflation)
+        : -Infinity;
+      const hi = withdrawalCeiling
+        ? (withdrawalCeiling.type === 'pct'
+            ? portfolioBeforeWithdrawal * withdrawalCeiling.value / 100
+            : withdrawalCeiling.value * cumInflation)
+        : Infinity;
+      boundsConflict = isFinite(lo) && isFinite(hi) && lo > hi;
+      targetWithdrawal = boundsConflict ? lo : Math.max(lo, Math.min(hi, targetWithdrawal));
+    }
 
     let withdrawn: number;
     let portfolioAfterWithdrawal: number;
@@ -255,6 +288,7 @@ function runOneSimulation(
       portfolioAfter,
       cumulativeInflationFactor: cumInflation,
       allocations: assetIds.map((id, j) => ({ id, pct: currentTarget[j] * 100 })),
+      boundsConflict,
     });
 
     // Inflation: YoY rate at same month of next year
@@ -274,6 +308,7 @@ function runOneSimulation(
   const withdrawalCVNonZero = computeCV(
     realWithdrawalsNonZero.length > 0 ? realWithdrawalsNonZero : realWithdrawalsAll
   );
+  const hadBoundsConflict = years.some(y => y.boundsConflict);
 
   return {
     startYear,
@@ -285,6 +320,7 @@ function runOneSimulation(
     finalPortfolioNominal,
     finalPortfolioReal,
     allocationMode: glidepath ? 'glidepath' : 'static',
+    hadBoundsConflict,
     maxDrawdownNominal,
     maxDrawdownReal,
     withdrawalCVAll,
@@ -379,6 +415,7 @@ export function runSimulations(inputs: SimulationInputs): AggregatedResults {
     dataStartMonth,
     dataEndYear,
     dataEndMonth,
+    strategy: inputs.strategy,
   };
 
   if (!isFinite(rangeMinLM) || !isFinite(rangeMaxLM) || lastStart < rangeMinLM) return empty;
@@ -449,5 +486,6 @@ export function runSimulations(inputs: SimulationInputs): AggregatedResults {
     dataStartMonth,
     dataEndYear,
     dataEndMonth,
+    strategy: inputs.strategy,
   };
 }

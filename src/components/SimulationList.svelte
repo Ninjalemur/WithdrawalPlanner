@@ -205,6 +205,9 @@
               {:else}
                 <span class="icon-ok">✓</span>
               {/if}
+              {#if sim.hadBoundsConflict}
+                <span class="icon-conflict" title="Floor overrode ceiling in ≥1 year">⚠</span>
+              {/if}
             </td>
             {#if showEndValue}<td>{fmtD(sim.finalPortfolioNominal)}</td>{/if}
             {#if showAvgSuff}<td>{avgSuffFmt(sim)}</td>{/if}
@@ -362,8 +365,9 @@
 
   .period { font-weight: 500; }
 
-  .icon-ok   { color: #10b981; font-weight: 700; }
-  .icon-fail { color: #ef4444; font-weight: 700; }
+  .icon-ok      { color: #10b981; font-weight: 700; }
+  .icon-fail    { color: #ef4444; font-weight: 700; }
+  .icon-conflict { color: #d97706; font-size: 0.8rem; margin-left: 0.25rem; }
 
   .arrow-cell {
     color: #d1d5db;

@@ -1,23 +1,27 @@
 <script lang="ts">
   import Plotly from 'plotly.js-dist-min';
   import type { SimulationResult } from '../engine/types';
+  import { capeValues } from '../data/compiled/indicators/cape';
 
   interface Props {
     sim: SimulationResult;
+    strategy: 'constant-dollar' | 'percent-of-portfolio' | 'cape';
     onback: () => void;
   }
-  let { sim, onback }: Props = $props();
+  let { sim, strategy, onback }: Props = $props();
 
   type MoneyView = 'nominal' | 'real';
   let wView  = $state<MoneyView>('nominal');
   let hView  = $state<MoneyView>('nominal');
   let ddView = $state<MoneyView>('nominal');
 
-  let allocEl:      HTMLDivElement | undefined = $state();
-  let portfolioEl:  HTMLDivElement | undefined = $state();
-  let withdrawalEl: HTMLDivElement | undefined = $state();
-  let histEl:       HTMLDivElement | undefined = $state();
-  let drawdownEl:   HTMLDivElement | undefined = $state();
+  let allocEl:         HTMLDivElement | undefined = $state();
+  let portfolioEl:     HTMLDivElement | undefined = $state();
+  let withdrawalEl:    HTMLDivElement | undefined = $state();
+  let wRateEl:         HTMLDivElement | undefined = $state();
+  let sufficiencyEl:   HTMLDivElement | undefined = $state();
+  let histEl:          HTMLDivElement | undefined = $state();
+  let drawdownEl:      HTMLDivElement | undefined = $state();
 
   // Per-year running drawdown: 0% at peak, positive when below (50% = half of peak)
   function runningDrawdown(values: number[]): number[] {
@@ -30,6 +34,14 @@
 
   const nominalDrawdowns = runningDrawdown(sim.years.map(y => y.withdrawn));
   const realDrawdowns    = runningDrawdown(sim.years.map(y => y.withdrawn / y.cumulativeInflationFactor));
+
+  // Withdrawal rate: withdrawn / portfolioBeforeWithdrawal (0 if portfolio was zero)
+  const withdrawalRates = sim.years.map(y =>
+    y.portfolioBeforeWithdrawal > 0 ? (y.withdrawn / y.portfolioBeforeWithdrawal) * 100 : 0
+  );
+
+  // CAPE lookup per year (CAPE strategy only)
+  const capePerYear = sim.years.map(y => capeValues.get(y.calendarYear * 100 + y.calendarMonth) ?? null);
 
   // Annual inflation rate from consecutive cumulativeInflationFactor values
   // cumulativeInflationFactor[i] = product(1+inf[year0..year(i-1)]), so
@@ -133,24 +145,85 @@
     const real = wView === 'real';
     const wY = sim.years.map(y => r3(real ? y.withdrawn      / y.cumulativeInflationFactor : y.withdrawn));
     const dY = sim.years.map(y => r3(real ? y.desiredExpense / y.cumulativeInflationFactor : y.desiredExpense));
+    const traces: Plotly.Data[] = [
+      {
+        type: 'scatter', mode: 'lines+markers', name: 'Withdrawn',
+        x: xs, y: wY, customdata: ym, line: { color: '#3b82f6' }, marker: { size: 4 },
+        hovertemplate: '%{customdata}<br>$%{y:,.0f}<extra></extra>',
+      },
+      {
+        type: 'scatter', mode: 'lines', name: 'Desired',
+        x: xs, y: dY, customdata: ym, line: { color: '#f59e0b', dash: 'dash' },
+        hovertemplate: '%{customdata}<br>$%{y:,.0f}<extra></extra>',
+      },
+    ];
+    const conflictYrs = sim.years.filter(y => y.boundsConflict);
+    if (conflictYrs.length > 0) {
+      traces.push({
+        type: 'scatter', mode: 'markers', name: 'Floor overrode ceiling',
+        x: conflictYrs.map(y => y.calendarYear),
+        y: conflictYrs.map(y => r3(real ? y.withdrawn / y.cumulativeInflationFactor : y.withdrawn)),
+        customdata: conflictYrs.map(y => `${y.calendarYear}-${String(y.calendarMonth).padStart(2, '0')}`),
+        marker: { color: '#d97706', size: 9, symbol: 'diamond' },
+        hovertemplate: '%{customdata}<br>$%{y:,.0f} (floor overrode ceiling)<extra></extra>',
+      });
+    }
     Plotly.react(
       withdrawalEl,
-      [
-        {
-          type: 'scatter', mode: 'lines+markers', name: 'Withdrawn',
-          x: xs, y: wY, customdata: ym, line: { color: '#3b82f6' }, marker: { size: 4 },
-          hovertemplate: '%{customdata}<br>$%{y:,.0f}<extra></extra>',
-        },
-        {
-          type: 'scatter', mode: 'lines', name: 'Desired',
-          x: xs, y: dY, customdata: ym, line: { color: '#f59e0b', dash: 'dash' },
-          hovertemplate: '%{customdata}<br>$%{y:,.0f}<extra></extra>',
-        },
-      ],
+      traces,
       {
         ...baseLayout(real ? 'Amount (start-yr $)' : 'Amount ($)', 40),
         showlegend: true,
         legend: { orientation: 'h', x: 0.5, xanchor: 'center', y: 1.18 },
+      },
+      plotConfig,
+    );
+  });
+
+  $effect(() => {
+    if (!sufficiencyEl) return;
+    const suffY = sim.years.map(y => r3(y.sufficiency * 100));
+    Plotly.react(
+      sufficiencyEl,
+      [
+        {
+          type: 'scatter', mode: 'lines+markers', name: 'Sufficiency',
+          x: xs, y: suffY, customdata: ym,
+          line: { color: '#10b981' }, marker: { size: 4 },
+          hovertemplate: '%{customdata}<br>Sufficiency: %{y:.1f}%<extra></extra>',
+        },
+        {
+          type: 'scatter', mode: 'lines', name: '100%',
+          x: [xs[0], xs[xs.length - 1]], y: [100, 100],
+          line: { color: '#d1d5db', dash: 'dot', width: 1.5 },
+          hoverinfo: 'skip',
+        },
+      ],
+      {
+        ...baseLayout('Sufficiency (%)', 40),
+        yaxis: { title: { text: 'Sufficiency (%)' }, tickformat: '.0f', ticksuffix: '%', rangemode: 'tozero' },
+        showlegend: false,
+      },
+      plotConfig,
+    );
+  });
+
+  $effect(() => {
+    if (!wRateEl) return;
+    Plotly.react(
+      wRateEl,
+      [
+        {
+          type: 'scatter', mode: 'lines+markers', name: 'Withdrawal Rate',
+          x: xs, y: withdrawalRates.map(r3), customdata: ym,
+          line: { color: '#8b5cf6' }, marker: { size: 4 },
+          hovertemplate: '%{customdata}<br>Rate: %{y:.2f}%<extra></extra>',
+        },
+      ],
+      {
+        ...baseLayout('Rate (%)'),
+        yaxis: { title: { text: 'Rate (%)' }, tickformat: '.1f', ticksuffix: '%', rangemode: 'tozero' },
+        showlegend: false,
       },
       plotConfig,
     );
@@ -198,6 +271,8 @@
       plotConfig,
     );
   });
+
+  const hasConflict = sim.years.some(y => y.boundsConflict);
 
   const fmtD = (n: number) => (n < 0 ? '-$' : '$') + Math.round(Math.abs(n)).toLocaleString('en-US');
   const fmtPct = (n: number) => (n * 100).toFixed(1) + '%';
@@ -266,6 +341,22 @@
     <div bind:this={withdrawalEl} class="chart"></div>
   </div>
 
+  <!-- Withdrawal Rate Over Time -->
+  <div class="card">
+    <h2>Withdrawal Rate Over Time</h2>
+    <p class="view-note">Annual withdrawal as % of portfolio value at the start of each year.</p>
+    <div bind:this={wRateEl} class="chart"></div>
+  </div>
+
+  <!-- Withdrawal Sufficiency Over Time (variable strategies only) -->
+  {#if strategy === 'percent-of-portfolio' || strategy === 'cape'}
+    <div class="card">
+      <h2>Withdrawal Sufficiency Over Time</h2>
+      <p class="view-note">Actual withdrawal as % of desired expense. 100% = fully met, below 100% = shortfall.</p>
+      <div bind:this={sufficiencyEl} class="chart"></div>
+    </div>
+  {/if}
+
   <!-- Withdrawal Histogram -->
   <div class="card">
     <div class="section-header">
@@ -307,11 +398,14 @@
             <th>Portfolio Before</th>
             <th>Desired Expense</th>
             <th>Withdrawn</th>
+            <th>W. Rate %</th>
             <th>Sufficiency</th>
             <th>Portfolio After</th>
             <th>Cum. Inflation</th>
             <th>DD (Nominal)</th>
             <th>DD (Real)</th>
+            {#if strategy === 'cape'}<th>CAPE</th>{/if}
+            {#if hasConflict}<th>Conflict</th>{/if}
             {#if sim.allocationMode === 'glidepath'}
               <th>Allocation</th>
             {/if}
@@ -324,11 +418,20 @@
               <td>{fmtD(y.portfolioBeforeWithdrawal)}</td>
               <td>{fmtD(y.desiredExpense)}</td>
               <td>{fmtD(y.withdrawn)}</td>
+              <td>{withdrawalRates[i].toFixed(2)}%</td>
               <td class:suff-ok={y.sufficiency >= 1} class:suff-low={y.sufficiency < 1}>{fmtPct(y.sufficiency)}</td>
               <td>{fmtD(y.portfolioAfter)}</td>
               <td>{fmtFactor(y.cumulativeInflationFactor)}</td>
               <td class:dd-nonzero={nominalDrawdowns[i] > 0}>{(nominalDrawdowns[i] * 100).toFixed(1)}%</td>
               <td class:dd-nonzero={realDrawdowns[i] > 0}>{(realDrawdowns[i] * 100).toFixed(1)}%</td>
+              {#if strategy === 'cape'}
+                <td>{capePerYear[i] !== null ? capePerYear[i]!.toFixed(1) : '—'}</td>
+              {/if}
+              {#if hasConflict}
+                <td class="conflict-cell" title={y.boundsConflict ? 'Floor overrode ceiling this year' : ''}>
+                  {y.boundsConflict ? '⚠' : ''}
+                </td>
+              {/if}
               {#if sim.allocationMode === 'glidepath'}
                 <td class="alloc-cell">
                   {y.allocations.map(a => `${(ALLOC_LABELS[a.id] ?? a.id)}: ${a.pct.toFixed(1)}%`).join(' / ')}
@@ -511,5 +614,6 @@
   .suff-ok { color: #10b981; font-weight: 600; }
   .suff-low { color: #ef4444; }
   .dd-nonzero { color: #ef4444; }
+  .conflict-cell { color: #d97706; text-align: center; }
   .alloc-cell { text-align: left; color: #6b7280; font-size: 0.72rem; white-space: nowrap; }
 </style>

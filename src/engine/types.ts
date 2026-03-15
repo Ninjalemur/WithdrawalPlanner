@@ -8,6 +8,7 @@ export interface YearResult {
   portfolioAfter: number;            // after withdrawal and rebalance
   cumulativeInflationFactor: number; // ∏(1 + inf) for steps 0..i-1; used to compute real values
   allocations: { id: string; pct: number }[]; // target allocation used for rebalance this year
+  boundsConflict: boolean; // true if floor > ceiling for this year (floor took priority)
 }
 
 export interface SimulationResult {
@@ -20,6 +21,7 @@ export interface SimulationResult {
   finalPortfolioNominal: number;
   finalPortfolioReal: number; // deflated to simulation start-year dollars
   allocationMode: 'static' | 'glidepath';
+  hadBoundsConflict: boolean; // true if any year had a bounds conflict (floor overrode ceiling)
   maxDrawdownNominal: number; // largest % drop from running peak in nominal withdrawals; 0 = none, -1 = -100%
   maxDrawdownReal:    number; // same in real (start-year) terms
   withdrawalCVAll:     number; // CV (SD/mean) of real withdrawals, including $0 (depleted) years
@@ -68,4 +70,5 @@ export interface AggregatedResults {
   dataStartMonth: number;  // first month of overlapping data range (1–12)
   dataEndYear: number;     // last year of overlapping data range
   dataEndMonth: number;    // last month of overlapping data range (1–12)
+  strategy: 'constant-dollar' | 'percent-of-portfolio' | 'cape';
 }

@@ -74,6 +74,8 @@
   let inflation         = $state<'inflation-us' | 'inflation-singapore' | 'manual'>('inflation-us');
   let manualInflationPct = $state(3);
   let durationYears = $state(30);
+  let startYearMin  = $state<number | null>(null);
+  let startYearMax  = $state<number | null>(null);
 
   // ---- allocation mode ----
   let allocationMode = $state<'static' | 'glidepath'>('static');
@@ -99,6 +101,10 @@
     constMode === 'amount'
       ? withdrawalAmountNum
       : portfolioValue * constPct / 100
+  );
+
+  let yearFilterInvalid = $derived(
+    startYearMin !== null && startYearMax !== null && startYearMin > startYearMax
   );
 
   let tobinInvalid = $derived(
@@ -145,6 +151,7 @@
     durationYears >= 1 &&
     !withdrawalInvalid &&
     !boundsHardConflict &&
+    !yearFilterInvalid &&
     (allocationMode === 'static' || (finalAllocationSum === 100 && glideStepSize > 0))
   );
 
@@ -160,7 +167,7 @@
     floorEnabled; pctFloorValue; pctCeilValue; ceilEnabled; floorType; floorValue; ceilType; ceilValue;
     tobinPrevYearPct; tobinSpendingRate; tobinInflationAdjust;
     tobinFloorEnabled; tobinFloorValue; tobinCeilEnabled; tobinCeilValue;
-    inflation; manualInflationPct; durationYears;
+    inflation; manualInflationPct; durationYears; startYearMin; startYearMax;
     assets.forEach(a => { a.enabled; a.pct; });
     allocationMode; glideStepCondition; glideStepSize; glideAthThreshold;
     finalAssets.forEach(a => { a.enabled; a.pct; });
@@ -209,6 +216,8 @@
       inflationSeries: inflation,
       manualInflationRate: manualInflationPct,
       durationYears,
+      startYearMin,
+      startYearMax,
       allocationMode,
       glidepath: allocationMode === 'glidepath' ? {
         finalAllocations: finalAssets.filter(a => a.enabled).map(a => ({ id: a.id, pct: a.pct })),
@@ -569,6 +578,21 @@
         <span class="adorn-right">yrs</span>
       </div>
     </label>
+  </section>
+
+  <section class="card">
+    <h2>Date Filter</h2>
+    <label class="field">
+      <span>First year</span>
+      <input type="number" min="1800" max="2100" placeholder="—" bind:value={startYearMin} />
+    </label>
+    <label class="field">
+      <span>Last year</span>
+      <input type="number" min="1800" max="2100" placeholder="—" bind:value={startYearMax} />
+    </label>
+    {#if yearFilterInvalid}
+      <p class="error-msg">First year must not exceed last year.</p>
+    {/if}
   </section>
 
   <button class="run-btn" onclick={handleRun} disabled={!isValid}>

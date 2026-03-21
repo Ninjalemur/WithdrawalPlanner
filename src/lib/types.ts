@@ -20,6 +20,8 @@ export interface SimulationInputs {
   inflationSeries: 'inflation-us' | 'inflation-singapore' | 'manual';
   manualInflationRate: number; // percentage, e.g. 3 = 3%; only used when inflationSeries === 'manual'
   durationYears: number;
+  startYearMin: number | null;  // null = unconstrained; more restrictive vs data range wins
+  startYearMax: number | null;  // null = unconstrained; more restrictive vs data range wins
   allocationMode: 'static' | 'glidepath';
   glidepath?: {
     finalAllocations: Array<{ id: string; pct: number }>;

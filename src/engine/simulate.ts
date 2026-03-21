@@ -400,16 +400,29 @@ export function runSimulations(inputs: SimulationInputs): AggregatedResults {
     rangeMaxLM = Math.min(rangeMaxLM, hi);
   }
 
-  const { year: dataStartYear, month: dataStartMonth } = lmToYM(
-    isFinite(rangeMinLM) ? rangeMinLM : 0
-  );
-  const { year: dataEndYear, month: dataEndMonth } = lmToYM(
-    isFinite(rangeMaxLM) ? rangeMaxLM : 0
-  );
-
   // Valid starts: last step (i = durationYears-1) needs inflation at (startYear+durationYears, startMonth)
   // = startLM + 12*durationYears ≤ rangeMaxLM
   const lastStart = rangeMaxLM - 12 * inputs.durationYears;
+
+  // Apply year filter — more restrictive of user input vs data range wins
+  let effectiveMinLM = rangeMinLM;
+  let effectiveMaxLM = lastStart;
+  if (inputs.startYearMin !== null) {
+    effectiveMinLM = Math.max(effectiveMinLM, ymToLM(inputs.startYearMin, 1));
+  }
+  if (inputs.startYearMax !== null) {
+    effectiveMaxLM = Math.min(effectiveMaxLM, ymToLM(inputs.startYearMax, 12));
+  }
+
+  // Display range reflects the effective simulated start range (post-filter + post-data-clamp)
+  const { year: dataStartYear, month: dataStartMonth } = lmToYM(
+    isFinite(effectiveMinLM) ? effectiveMinLM : (isFinite(rangeMinLM) ? rangeMinLM : 0)
+  );
+  const { year: dataEndYear, month: dataEndMonth } = lmToYM(
+    isFinite(effectiveMaxLM) && effectiveMaxLM >= effectiveMinLM
+      ? effectiveMaxLM
+      : (isFinite(rangeMinLM) ? rangeMinLM : 0)
+  );
 
   const empty: AggregatedResults = {
     simulations: [],
@@ -438,11 +451,11 @@ export function runSimulations(inputs: SimulationInputs): AggregatedResults {
     strategy: inputs.strategy,
   };
 
-  if (!isFinite(rangeMinLM) || !isFinite(rangeMaxLM) || lastStart < rangeMinLM) return empty;
+  if (!isFinite(rangeMinLM) || !isFinite(rangeMaxLM) || lastStart < rangeMinLM || effectiveMinLM > effectiveMaxLM) return empty;
 
   // Run one simulation per valid start month
   const simulations: SimulationResult[] = [];
-  for (let lm = rangeMinLM; lm <= lastStart; lm++) {
+  for (let lm = effectiveMinLM; lm <= effectiveMaxLM; lm++) {
     const { year, month } = lmToYM(lm);
     simulations.push(
       runOneSimulation(year, month, inputs, assetMaps, assetIds, initialTarget, glidepath, getInflation)

@@ -38,14 +38,14 @@
   let portfolioValueStr  = $state('1,000,000');
   let portfolioValue     = $derived(parseFmt(portfolioValueStr));
 
-  let strategy    = $state<'constant-dollar' | 'percent-of-portfolio' | 'cape'>('constant-dollar');
+  let strategy    = $state<'constant-dollar' | 'percent-of-portfolio' | 'cape' | 'tobin'>('constant-dollar');
   let constMode   = $state<'amount' | 'pct-of-initial'>('amount');
   let withdrawalAmountStr = $state('40,000');
   let withdrawalAmountNum = $derived(parseFmt(withdrawalAmountStr));
   let constPct    = $state(4);
   let withdrawalPct = $state(4);
-  let capeBasePct    = $state(1.5);
-  let capeMultiplier = $state(0.5);
+  let capeBasePct    = $state(1.95);
+  let capeMultiplier = $state(0.35);
 
   // Bounds (percent-of-portfolio and cape only)
   let floorEnabled    = $state(false);
@@ -58,6 +58,18 @@
   let floorValue      = $state(2);
   let ceilType        = $state<'pct' | 'dollar'>('pct');
   let ceilValue       = $state(6);
+
+  // Tobin / Yale
+  let tobinPrevYearPct     = $state(70);
+  let tobinSpendingRate    = $state(5);
+  let tobinInflationAdjust = $state(false);
+  let tobinFloorEnabled    = $state(false);
+  let tobinFloorValue      = $state(20000);
+  let tobinCeilEnabled     = $state(false);
+  let tobinCeilValue       = $state(100000);
+
+  // Strategy info overlay
+  let showStrategyInfo = $state(false);
 
   let inflation         = $state<'inflation-us' | 'inflation-singapore' | 'manual'>('inflation-us');
   let manualInflationPct = $state(3);
@@ -89,19 +101,23 @@
       : portfolioValue * constPct / 100
   );
 
+  let tobinInvalid = $derived(
+    tobinPrevYearPct < 0 || tobinPrevYearPct > 100 ||
+    tobinSpendingRate < 0 || tobinSpendingRate > 100
+  );
+
   let withdrawalInvalid = $derived(
     (strategy === 'constant-dollar'      && effectiveWithdrawalAmount <= 0) ||
     (strategy === 'percent-of-portfolio' && withdrawalPct <= 0) ||
-    (strategy === 'cape'                 && (capeBasePct < 0 || capeMultiplier <= 0))
+    (strategy === 'cape'                 && (capeBasePct < 0 || capeMultiplier <= 0)) ||
+    (strategy === 'tobin'                && tobinInvalid)
   );
 
-  // Bounds conflict for percent-of-portfolio (always dollar, hard block only)
+  // Bounds conflict — hard block when floor > ceiling in same unit
   let boundsHardConflict = $derived(
-    floorEnabled && ceilEnabled && (
-      strategy === 'percent-of-portfolio'
-        ? pctFloorValue > pctCeilValue
-        : (floorType === ceilType && floorValue > ceilValue)
-    )
+    (strategy === 'percent-of-portfolio' && floorEnabled && ceilEnabled && pctFloorValue > pctCeilValue) ||
+    (strategy === 'cape'  && floorEnabled && ceilEnabled && floorType === ceilType && floorValue > ceilValue) ||
+    (strategy === 'tobin' && tobinFloorEnabled && tobinCeilEnabled && tobinFloorValue > tobinCeilValue)
   );
 
   // Cross-type soft warning (CAPE only — pct-of-portfolio can't have cross-type conflict)
@@ -142,6 +158,8 @@
     strategy; constMode; withdrawalAmountStr; constPct; withdrawalPct;
     capeBasePct; capeMultiplier;
     floorEnabled; pctFloorValue; pctCeilValue; ceilEnabled; floorType; floorValue; ceilType; ceilValue;
+    tobinPrevYearPct; tobinSpendingRate; tobinInflationAdjust;
+    tobinFloorEnabled; tobinFloorValue; tobinCeilEnabled; tobinCeilValue;
     inflation; manualInflationPct; durationYears;
     assets.forEach(a => { a.enabled; a.pct; });
     allocationMode; glideStepCondition; glideStepSize; glideAthThreshold;
@@ -175,8 +193,19 @@
       withdrawalPct,
       capeBasePct,
       capeMultiplier,
-      withdrawalFloor:   floorEnabled ? (strategy === 'percent-of-portfolio' ? { type: 'dollar', value: pctFloorValue } : { type: floorType, value: floorValue }) : null,
-      withdrawalCeiling: ceilEnabled  ? (strategy === 'percent-of-portfolio' ? { type: 'dollar', value: pctCeilValue  } : { type: ceilType,  value: ceilValue  }) : null,
+      tobinPrevYearPct,
+      tobinSpendingRate,
+      tobinInflationAdjust,
+      withdrawalFloor:
+        strategy === 'percent-of-portfolio' ? (floorEnabled  ? { type: 'dollar', value: pctFloorValue  } : null) :
+        strategy === 'tobin'                ? (tobinFloorEnabled ? { type: 'dollar', value: tobinFloorValue } : null) :
+        strategy === 'cape'                 ? (floorEnabled  ? { type: floorType,  value: floorValue   } : null) :
+        null,
+      withdrawalCeiling:
+        strategy === 'percent-of-portfolio' ? (ceilEnabled   ? { type: 'dollar', value: pctCeilValue   } : null) :
+        strategy === 'tobin'                ? (tobinCeilEnabled  ? { type: 'dollar', value: tobinCeilValue  } : null) :
+        strategy === 'cape'                 ? (ceilEnabled   ? { type: ceilType,   value: ceilValue    } : null) :
+        null,
       inflationSeries: inflation,
       manualInflationRate: manualInflationPct,
       durationYears,
@@ -303,11 +332,20 @@
   </section>
 
   <section class="card">
-    <h2>Withdrawal Strategy</h2>
+    <div class="label-with-info">
+      <h2>Withdrawal Strategy</h2>
+      <button
+        class="info-btn"
+        title="More information on strategies"
+        onclick={() => showStrategyInfo = true}
+        aria-label="More information on strategies"
+      >ℹ</button>
+    </div>
     <select bind:value={strategy}>
       <option value="constant-dollar">Constant dollar</option>
       <option value="percent-of-portfolio">Percent of portfolio</option>
       <option value="cape">CAPE (Shiller)</option>
+      <option value="tobin">Tobin / Yale</option>
     </select>
 
     {#if strategy === 'constant-dollar'}
@@ -355,7 +393,7 @@
           <span class="adorn-right">%</span>
         </div>
       </label>
-    {:else}
+    {:else if strategy === 'cape'}
       <label class="field">
         <span>Base rate</span>
         <div class="input-adorn">
@@ -368,6 +406,32 @@
         <input type="number" min="0" step="0.1" bind:value={capeMultiplier} />
       </label>
       <p class="derived-hint">Rate = base + multiplier ÷ CAPE. E.g. at CAPE 25: {(capeBasePct + capeMultiplier / 25).toFixed(2)}%</p>
+    {:else}
+      <label class="field">
+        <span>Prev-year weight</span>
+        <div class="input-adorn">
+          <input type="number" min="0" max="100" step="1" bind:value={tobinPrevYearPct} />
+          <span class="adorn-right">%</span>
+        </div>
+      </label>
+      {#if tobinPrevYearPct < 0 || tobinPrevYearPct > 100}
+        <p class="error-msg">Prev-year weight must be between 0% and 100%.</p>
+      {/if}
+      <p class="derived-hint">Portfolio weight: {(100 - tobinPrevYearPct).toFixed(1)}%</p>
+      <label class="field">
+        <span>Spending rate</span>
+        <div class="input-adorn">
+          <input type="number" min="0" max="100" step="0.1" bind:value={tobinSpendingRate} />
+          <span class="adorn-right">%</span>
+        </div>
+      </label>
+      {#if tobinSpendingRate < 0 || tobinSpendingRate > 100}
+        <p class="error-msg">Spending rate must be between 0% and 100%.</p>
+      {/if}
+      <label class="checkbox-label" style="margin-top: 0.25rem;">
+        <input type="checkbox" bind:checked={tobinInflationAdjust} />
+        Inflation-adjust previous year
+      </label>
     {/if}
 
     {#if strategy === 'percent-of-portfolio'}
@@ -428,12 +492,39 @@
           </div>
         {/if}
       </div>
+    {:else if strategy === 'tobin'}
+      <div class="bound-row">
+        <label class="checkbox-label">
+          <input type="checkbox" bind:checked={tobinFloorEnabled} /> Min withdrawal (floor)
+        </label>
+        {#if tobinFloorEnabled}
+          <div class="input-adorn">
+            <span class="adorn-left">$</span>
+            <input type="number" min="0" step="1000" bind:value={tobinFloorValue} />
+          </div>
+          <p class="bound-note">Inflation-adjusted — grows with CPI each year.</p>
+        {/if}
+      </div>
+      <div class="bound-row">
+        <label class="checkbox-label">
+          <input type="checkbox" bind:checked={tobinCeilEnabled} /> Max withdrawal (ceiling)
+        </label>
+        {#if tobinCeilEnabled}
+          <div class="input-adorn">
+            <span class="adorn-left">$</span>
+            <input type="number" min="0" step="1000" bind:value={tobinCeilValue} />
+          </div>
+          <p class="bound-note">Inflation-adjusted — grows with CPI each year.</p>
+        {/if}
+      </div>
     {/if}
 
     {#if boundsHardConflict}
       <p class="error-msg">
         {#if strategy === 'percent-of-portfolio'}
           Floor (${fmt(pctFloorValue)}) exceeds ceiling (${fmt(pctCeilValue)}) — adjust bounds before running.
+        {:else if strategy === 'tobin'}
+          Floor (${fmt(tobinFloorValue)}) exceeds ceiling (${fmt(tobinCeilValue)}) — adjust bounds before running.
         {:else}
           Floor ({floorType === 'pct' ? floorValue + '%' : '$' + fmt(floorValue)}) exceeds ceiling
           ({ceilType === 'pct' ? ceilValue + '%' : '$' + fmt(ceilValue)}) — adjust bounds before running.
@@ -489,6 +580,108 @@
   {/if}
 
 </aside>
+
+{#if showStrategyInfo}
+  <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+  <div class="overlay-backdrop" onclick={() => showStrategyInfo = false} role="presentation"></div>
+  <div class="overlay-box" role="dialog" aria-modal="true" aria-label="Withdrawal strategies">
+    <button class="overlay-close" onclick={() => showStrategyInfo = false} aria-label="Close">✕</button>
+    <div class="overlay-content">
+      <h2 class="overlay-title">Withdrawal Strategies</h2>
+
+      <div class="strategy-card">
+        <h3>Constant Dollar</h3>
+        <p>The classic "4% rule" approach. Set a fixed annual withdrawal at retirement; it grows with inflation each year to preserve purchasing power.</p>
+        <div class="pros-cons">
+          <div class="pros-col">
+            <p class="pros-header">Pros</p>
+            <ul>
+              <li>Predictable income each year</li>
+              <li>Simple to understand</li>
+              <li>Purchasing power preserved</li>
+            </ul>
+          </div>
+          <div class="cons-col">
+            <p class="cons-header">Cons</p>
+            <ul>
+              <li>No adjustment for portfolio performance</li>
+              <li>Risk of depletion after a poor-return sequence</li>
+              <li>May leave large unspent amounts in strong markets</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <div class="strategy-card">
+        <h3>Percent of Portfolio</h3>
+        <p>Withdraw a fixed percentage of your current portfolio each year. Income rises in bull markets and falls in downturns.</p>
+        <div class="pros-cons">
+          <div class="pros-col">
+            <p class="pros-header">Pros</p>
+            <ul>
+              <li>Portfolio can never be technically depleted</li>
+              <li>Automatically reduces spending in downturns</li>
+              <li>Grows with the portfolio</li>
+            </ul>
+          </div>
+          <div class="cons-col">
+            <p class="cons-header">Cons</p>
+            <ul>
+              <li>Highly variable year-to-year income</li>
+              <li>Can drop sharply in a crash, making budgeting difficult</li>
+              <li>Without bounds, no income floor</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <div class="strategy-card">
+        <h3>CAPE / Shiller</h3>
+        <p>Sets the annual withdrawal rate based on market valuation (Shiller P/E 10): <em>Rate = Base + Multiplier ÷ CAPE</em>. Spend less when markets are expensive, more when they are cheap.</p>
+        <div class="pros-cons">
+          <div class="pros-col">
+            <p class="pros-header">Pros</p>
+            <ul>
+              <li>Valuation-aware — naturally reduces withdrawals in overvalued markets</li>
+              <li>Historically extends portfolio longevity</li>
+              <li>Optional bounds for stability</li>
+            </ul>
+          </div>
+          <div class="cons-col">
+            <p class="cons-header">Cons</p>
+            <ul>
+              <li>Variable year-to-year income, although potentially more stable than Percent of Portfolio</li>
+              <li>Formula less intuitive than other strategies</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <div class="strategy-card">
+        <h3>Tobin / Yale Endowment</h3>
+        <p>A smoothing rule from institutional endowment management. Each year blends a share of last year's withdrawal with a portfolio-based spending target: <em>W = α × W<sub>prev</sub> + (1 − α) × rate × portfolio</em>.</p>
+        <div class="pros-cons">
+          <div class="pros-col">
+            <p class="pros-header">Pros</p>
+            <ul>
+              <li>Smooth, gradual income changes</li>
+              <li>Balances stability and portfolio-sensitivity</li>
+              <li>Optional inflation adjustment preserves real purchasing power of the prior-year component</li>
+            </ul>
+          </div>
+          <div class="cons-col">
+            <p class="cons-header">Cons</p>
+            <ul>
+              <li>Slow to respond to a large portfolio decline</li>
+              <li>Prior-year inertia can sustain high spending through a crash</li>
+              <li>More parameters to configure</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+{/if}
 
 <style>
   .input-panel {
@@ -824,6 +1017,96 @@
     font-style: italic;
   }
 
+  /* ---- strategy label + info icon ---- */
+  .label-with-info {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .info-btn {
+    width: 1.1rem;
+    height: 1.1rem;
+    border-radius: 50%;
+    border: 1px solid #d1d5db;
+    background: #f9fafb;
+    cursor: pointer;
+    color: #9ca3af;
+    font-size: 0.65rem;
+    font-style: italic;
+    font-weight: 700;
+    line-height: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    padding: 0;
+  }
+  .info-btn:hover {
+    background: #e5e7eb;
+    color: #374151;
+    border-color: #9ca3af;
+  }
+
+  /* ---- overlay ---- */
+  .overlay-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.4);
+    z-index: 100;
+  }
+  .overlay-box {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: min(560px, 92vw);
+    max-height: 80vh;
+    background: #fff;
+    border-radius: 8px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+    z-index: 101;
+    display: flex;
+    flex-direction: column;
+  }
+  .overlay-close {
+    position: sticky;
+    top: 0;
+    align-self: flex-end;
+    margin: 0.75rem 0.75rem 0 0;
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: 1.1rem;
+    color: #6b7280;
+    z-index: 1;
+    flex-shrink: 0;
+  }
+  .overlay-close:hover { color: #111; }
+  .overlay-content {
+    overflow-y: auto;
+    padding: 0 1.25rem 1.25rem;
+  }
+  .overlay-title {
+    font-size: 1rem;
+    font-weight: 600;
+    color: #111827;
+    margin: 0 0 0.75rem;
+    text-transform: none;
+    letter-spacing: normal;
+  }
+
+  /* ---- strategy cards in overlay ---- */
+  .strategy-card        { margin-bottom: 1.75rem; }
+  .strategy-card h3     { margin: 0 0 0.4rem; font-size: 0.9rem; font-weight: 600; color: #111827; }
+  .strategy-card > p    { font-size: 0.82rem; color: #374151; line-height: 1.5; margin: 0 0 0.75rem; }
+  .pros-cons            { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; }
+  .pros-header          { color: #009E73; margin: 0 0 0.3rem; font-size: 0.75rem; font-weight: 700; }
+  .cons-header          { color: #CC3311; margin: 0 0 0.3rem; font-size: 0.75rem; font-weight: 700; }
+  .pros-col ul,
+  .cons-col ul          { margin: 0; padding-left: 1rem; }
+  .pros-col li,
+  .cons-col li          { font-size: 0.78rem; color: #374151; line-height: 1.45; margin-bottom: 0.2rem; }
+
   @media (max-width: 768px) {
     .input-panel {
       width: 100%;
@@ -832,5 +1115,6 @@
       border-right: none;
       border-bottom: 1px solid #e5e7eb;
     }
+    .pros-cons { grid-template-columns: 1fr; }
   }
 </style>

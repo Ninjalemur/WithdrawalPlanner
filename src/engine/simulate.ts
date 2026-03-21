@@ -180,17 +180,22 @@ function runOneSimulation(
   const {
     portfolioValue: initialPortfolio, durationYears, strategy,
     withdrawalAmount, withdrawalPct, capeBasePct, capeMultiplier,
+    tobinPrevYearPct, tobinSpendingRate, tobinInflationAdjust,
     withdrawalFloor, withdrawalCeiling,
   } = inputs;
 
   // For constant-dollar, initialDesired is fixed upfront.
-  // For pct-of-portfolio and cape, it is captured from the first year's formula result.
+  // For pct-of-portfolio, cape, and tobin, it is captured from the first year's formula result.
   let initialDesired = strategy === 'constant-dollar' ? withdrawalAmount : 0;
 
   let currentTarget = [...initialTarget];
   let assetValues = currentTarget.map(a => a * initialPortfolio);
   let failed = false;
   let cumInflation = 1;
+
+  // Tobin/Yale: track actual withdrawn (post-bounds) and prior cumInflation for annual rate
+  let prevYearActual   = 0;
+  let prevCumInflation = 1;
 
   const years: YearResult[] = [];
 
@@ -223,6 +228,15 @@ function runOneSimulation(
     } else if (strategy === 'cape') {
       const capeVal = capeValues.get(stepKey) ?? 17; // 17 = historical median fallback
       formulaWithdrawal = portfolioBeforeWithdrawal * (capeBasePct / 100 + capeMultiplier / capeVal);
+    } else if (strategy === 'tobin') {
+      if (i === 0) {
+        formulaWithdrawal = portfolioBeforeWithdrawal * (tobinSpendingRate / 100);
+      } else {
+        const annualInflation = prevCumInflation > 0 ? cumInflation / prevCumInflation : 1;
+        const prevAdj = tobinInflationAdjust ? prevYearActual * annualInflation : prevYearActual;
+        const w = tobinPrevYearPct / 100;
+        formulaWithdrawal = w * prevAdj + (1 - w) * (tobinSpendingRate / 100) * portfolioBeforeWithdrawal;
+      }
     } else {
       formulaWithdrawal = portfolioBeforeWithdrawal * (withdrawalPct / 100);
     }
@@ -251,6 +265,12 @@ function runOneSimulation(
         : Infinity;
       boundsConflict = isFinite(lo) && isFinite(hi) && lo > hi;
       targetWithdrawal = boundsConflict ? lo : Math.max(lo, Math.min(hi, targetWithdrawal));
+    }
+
+    // Tobin: capture targetWithdrawal (pre-depletion clamp) as the feedback value for next year
+    if (strategy === 'tobin') {
+      prevYearActual   = targetWithdrawal;
+      prevCumInflation = cumInflation;
     }
 
     let withdrawn: number;

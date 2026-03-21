@@ -158,8 +158,9 @@
   let cvChartEl:         HTMLDivElement | undefined = $state();
   let suffChartEl:       HTMLDivElement | undefined = $state();
   let suffBandChartEl:       HTMLDivElement | undefined = $state();
-  let drawdownChartEl:       HTMLDivElement | undefined = $state();
-  let wRateBandChartEl:      HTMLDivElement | undefined = $state();
+  let drawdownChartEl:          HTMLDivElement | undefined = $state();
+  let drawdownBySimChartEl:     HTMLDivElement | undefined = $state();
+  let wRateBandChartEl:         HTMLDivElement | undefined = $state();
 
   const chartConfig = { responsive: true, displayModeBar: false };
   const r3 = (v: number) => Math.round(v * 1000) / 1000;
@@ -371,6 +372,36 @@
         yaxis: { title: { text: 'Sufficiency (%)' }, ticksuffix: '%', tickformat: '.0f' },
         showlegend: true,
         legend: { orientation: 'h' as const, x: 0.5, xanchor: 'center' as const, y: 1.12 },
+      },
+      chartConfig,
+    );
+  });
+
+  $effect(() => {
+    if (!drawdownBySimChartEl) return;
+    const sims = results.simulations;
+    if (sims.length === 0) return;
+    const isNominal = drawdownView === 'nominal';
+    const xs    = sims.map(s => s.startYear + (s.startMonth - 1) / 12);
+    const dates = sims.map(s => `${s.startYear}-${String(s.startMonth).padStart(2, '0')}`);
+    const ys    = sims.map(s => r3((isNominal ? s.maxDrawdownNominal : s.maxDrawdownReal) * 100));
+    Plotly.react(
+      drawdownBySimChartEl,
+      [
+        {
+          type: 'scatter', mode: 'lines', name: 'Max Drawdown',
+          x: xs, y: ys, customdata: dates,
+          line: { color: '#ef4444', width: 1.5 },
+          fill: 'tozeroy', fillcolor: 'rgba(239,68,68,0.08)',
+          hovertemplate: '%{customdata}<br>Max drawdown: %{y:.1f}%<extra></extra>',
+        },
+      ],
+      {
+        ...makeLayout('Max Drawdown (%)'),
+        height: 300,
+        xaxis: { tickformat: '.0f', title: { text: 'Simulation start' } },
+        yaxis: { title: { text: 'Max Drawdown (%)' }, ticksuffix: '%', tickformat: '.0f', rangemode: 'tozero' },
+        showlegend: false,
       },
       chartConfig,
     );
@@ -687,6 +718,22 @@
       </table>
     </div>
     <div bind:this={drawdownChartEl} class="chart"></div>
+  </div>
+
+  <!-- Withdrawal Max Drawdown by Simulation -->
+  <div class="card">
+    <div class="section-header">
+      <h2>Withdrawal Max Drawdown by Simulation</h2>
+      <div class="toggle-group">
+        <button class:active={drawdownView === 'nominal'} onclick={() => drawdownView = 'nominal'}>Nominal</button>
+        <button class:active={drawdownView === 'real'}    onclick={() => drawdownView = 'real'}>Real</button>
+      </div>
+    </div>
+    <p class="view-note">
+      Maximum % decline in annual withdrawal from its running peak, plotted by simulation start date.
+      0% = withdrawal never declined. 100% = portfolio depleted.
+    </p>
+    <div bind:this={drawdownBySimChartEl} class="chart"></div>
   </div>
 
   <!-- Withdrawal Rate by Simulation -->

@@ -5,7 +5,7 @@
 
   interface Props {
     sim: SimulationResult;
-    strategy: 'constant-dollar' | 'percent-of-portfolio' | 'cape';
+    strategy: 'constant-dollar' | 'percent-of-portfolio' | 'cape' | 'tobin';
     onback: () => void;
   }
   let { sim, strategy, onback }: Props = $props();
@@ -349,7 +349,7 @@
   </div>
 
   <!-- Withdrawal Sufficiency Over Time (variable strategies only) -->
-  {#if strategy === 'percent-of-portfolio' || strategy === 'cape'}
+  {#if strategy === 'percent-of-portfolio' || strategy === 'cape' || strategy === 'tobin'}
     <div class="card">
       <h2>Withdrawal Sufficiency Over Time</h2>
       <p class="view-note">Actual withdrawal as % of desired expense. 100% = fully met, below 100% = shortfall.</p>

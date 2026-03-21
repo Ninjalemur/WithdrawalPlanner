@@ -70,5 +70,5 @@ export interface AggregatedResults {
   dataStartMonth: number;  // first month of overlapping data range (1–12)
   dataEndYear: number;     // last year of overlapping data range
   dataEndMonth: number;    // last month of overlapping data range (1–12)
-  strategy: 'constant-dollar' | 'percent-of-portfolio' | 'cape';
+  strategy: 'constant-dollar' | 'percent-of-portfolio' | 'cape' | 'tobin';
 }

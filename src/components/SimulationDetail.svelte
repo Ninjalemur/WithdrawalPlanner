@@ -63,6 +63,37 @@
   const fmtPeriod = (year: number, month: number) => `${year} ${MONTHS[month - 1]}`;
   const r3 = (v: number) => Math.round(v * 1000) / 1000;
 
+  function preBin(
+    data: number[],
+    fmtLabel: (lo: number, hi: number) => string,
+    targetBins = 25,
+  ): { mids: number[]; labels: string[]; counts: number[]; size: number } {
+    const n = data.length;
+    if (n === 0) return { mids: [], labels: [], counts: [], size: 1 };
+    let lo = Infinity, hi = -Infinity;
+    for (const v of data) { if (v < lo) lo = v; if (v > hi) hi = v; }
+    if (lo === hi) {
+      return { mids: [lo], labels: [fmtLabel(lo, lo)], counts: [n], size: 1 };
+    }
+    const range = hi - lo;
+    const raw = range / targetBins;
+    const mag = Math.pow(10, Math.floor(Math.log10(raw)));
+    const norm = raw / mag;
+    const size = norm <= 1.5 ? mag : norm <= 3 ? 2 * mag : norm <= 7 ? 5 * mag : 10 * mag;
+    const start = Math.floor(lo / size) * size;
+    const nBins  = Math.max(1, Math.floor((hi - start) / size) + 1);
+    const counts = new Array(nBins).fill(0);
+    for (const v of data) {
+      const idx = Math.min(Math.floor((v - start) / size), nBins - 1);
+      if (idx >= 0) counts[idx]++;
+    }
+    const mids   = Array.from({ length: nBins }, (_, i) => start + i * size + size / 2);
+    const labels = Array.from({ length: nBins }, (_, i) =>
+      fmtLabel(start + i * size, start + (i + 1) * size)
+    );
+    return { mids, labels, counts, size };
+  }
+
   const plotConfig = { responsive: true, displayModeBar: false };
   const xs = sim.years.map(y => y.calendarYear);
   const ym = sim.years.map(y => `${y.calendarYear}-${String(y.calendarMonth).padStart(2, '0')}`);
@@ -287,10 +318,19 @@
     if (!histEl) return;
     const real = hView === 'real';
     const data = sim.years.map(y => r3(real ? y.withdrawn / y.cumulativeInflationFactor : y.withdrawn));
+    const fmtLabel = (lo: number, hi: number) =>
+      `$${Math.round(lo).toLocaleString('en-US')}–$${Math.round(hi).toLocaleString('en-US')}`;
+    const { mids, labels, counts, size } = preBin(data, fmtLabel);
+    const total = data.length;
+    const pcts = counts.map(c => total > 0 ? (c / total) * 100 : 0);
     Plotly.react(
       histEl,
-      [{ type: 'histogram', x: data, histnorm: 'percent', marker: { color: '#3b82f6', opacity: 0.85 },
-         hovertemplate: '$%{x:,.0f}<br>%{y:.1f}% of years<extra></extra>' }],
+      [{
+        type: 'bar', x: mids, y: pcts, width: size * 0.96,
+        customdata: labels.map((lbl, i) => [counts[i], lbl]),
+        marker: { color: '#3b82f6', opacity: 0.85 },
+        hovertemplate: '%{customdata[1]}<br>%{customdata[0]} years (%{y:.1f}%)<extra></extra>',
+      }],
       { ...baseLayout('% of Years'), xaxis: { tickprefix: '$', tickformat: ',.0f' } },
       plotConfig,
     );

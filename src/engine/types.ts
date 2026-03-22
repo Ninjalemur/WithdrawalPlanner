@@ -11,6 +11,8 @@ export interface YearResult {
   effectiveFloor:   number; // computed floor for this step (-Infinity if no floor)
   effectiveCeiling: number; // computed ceiling for this step (Infinity if no ceiling)
   boundsConflict: boolean; // true if floor > ceiling for this year (floor took priority)
+  sensibleBase:   number; // base component of withdrawal (sensible strategy); 0 for others
+  sensibleExtras: number; // extras component of withdrawal (sensible strategy); 0 for others
 }
 
 export interface SimulationResult {

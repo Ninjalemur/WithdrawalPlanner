@@ -181,6 +181,7 @@ function runOneSimulation(
     portfolioValue: initialPortfolio, durationYears, strategy,
     withdrawalAmount, withdrawalPct, capeBasePct, capeMultiplier,
     tobinPrevYearPct, tobinSpendingRate, tobinInflationAdjust,
+    sensibleMode, sensibleAmount, sensiblePct, sensibleExtrasRate,
     withdrawalFloor, withdrawalCeiling,
   } = inputs;
 
@@ -196,6 +197,9 @@ function runOneSimulation(
   // Tobin/Yale: track actual withdrawn (post-bounds) and prior cumInflation for annual rate
   let prevYearActual   = 0;
   let prevCumInflation = 1;
+
+  // Sensible Withdrawals: track portfolio-after-withdrawal from previous year
+  let prevPortfolioAfterWithdrawal = initialPortfolio;
 
   const years: YearResult[] = [];
 
@@ -223,6 +227,8 @@ function runOneSimulation(
 
     // Compute the formula withdrawal for this year (what the strategy says to withdraw)
     let formulaWithdrawal: number;
+    let sensibleBase   = 0;
+    let sensibleExtras = 0;
     if (strategy === 'constant-dollar') {
       formulaWithdrawal = initialDesired * cumInflation;
     } else if (strategy === 'cape') {
@@ -237,6 +243,17 @@ function runOneSimulation(
         const w = tobinPrevYearPct / 100;
         formulaWithdrawal = w * prevAdj + (1 - w) * (tobinSpendingRate / 100) * portfolioBeforeWithdrawal;
       }
+    } else if (strategy === 'sensible') {
+      const initialBase = sensibleMode === 'amount'
+        ? sensibleAmount
+        : initialPortfolio * (sensiblePct / 100);
+      sensibleBase = initialBase * cumInflation;
+      if (i > 0) {
+        const annualInfl = prevCumInflation > 0 ? cumInflation / prevCumInflation : 1;
+        const realGain = portfolioBeforeWithdrawal - prevPortfolioAfterWithdrawal * annualInfl;
+        if (realGain > 0) sensibleExtras = (sensibleExtrasRate / 100) * realGain;
+      }
+      formulaWithdrawal = sensibleBase + sensibleExtras;
     } else {
       formulaWithdrawal = portfolioBeforeWithdrawal * (withdrawalPct / 100);
     }
@@ -278,8 +295,9 @@ function runOneSimulation(
     // Tobin: capture targetWithdrawal (pre-depletion clamp) as the feedback value for next year
     if (strategy === 'tobin') {
       prevYearActual   = targetWithdrawal;
-      prevCumInflation = cumInflation;
     }
+    // Sensible + Tobin: track cumInflation for annual rate computation
+    prevCumInflation = cumInflation;
 
     let withdrawn: number;
     let portfolioAfterWithdrawal: number;
@@ -298,6 +316,9 @@ function runOneSimulation(
     }
 
     const sufficiency = desiredExpense > 0 ? withdrawn / desiredExpense : 0;
+
+    // Sensible: track post-withdrawal portfolio for next year's real-gain computation
+    if (strategy === 'sensible') prevPortfolioAfterWithdrawal = portfolioAfterWithdrawal;
 
     // Rebalance to post-withdrawal amount, then apply precomputed 12-month compound return
     assetValues = currentTarget.map(a => a * portfolioAfterWithdrawal);
@@ -319,6 +340,8 @@ function runOneSimulation(
       effectiveFloor,
       effectiveCeiling,
       boundsConflict,
+      sensibleBase,
+      sensibleExtras,
     });
 
     // Inflation: YoY rate at same month of next year

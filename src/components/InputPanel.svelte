@@ -70,6 +70,16 @@
   let tobinCeilPct         = $state<number | null>(null);
   let tobinCeilDollar      = $state(100000);
 
+  // Sensible Withdrawals
+  let sensibleMode       = $state<'amount' | 'pct-of-portfolio'>('amount');
+  let sensibleAmountStr  = $state('30,000');
+  let sensibleAmountNum  = $derived(parseFmt(sensibleAmountStr));
+  let sensiblePct        = $state(3);
+  let sensibleExtrasRate = $state(25);
+  let sensibleCeilEnabled = $state(false);
+  let sensibleCeilPct     = $state<number | null>(null);
+  let sensibleCeilDollar  = $state<number | null>(null);
+
   // Strategy info overlay
   let showStrategyInfo = $state(false);
 
@@ -119,7 +129,12 @@
     (strategy === 'constant-dollar'      && effectiveWithdrawalAmount <= 0) ||
     (strategy === 'percent-of-portfolio' && withdrawalPct <= 0) ||
     (strategy === 'cape'                 && (capeBasePct < 0 || capeMultiplier <= 0)) ||
-    (strategy === 'tobin'                && tobinInvalid)
+    (strategy === 'tobin'                && tobinInvalid) ||
+    (strategy === 'sensible'             && (
+      (sensibleMode === 'amount'           && sensibleAmountNum <= 0) ||
+      (sensibleMode === 'pct-of-portfolio' && sensiblePct <= 0) ||
+      sensibleExtrasRate < 0
+    ))
   );
 
   // Bounds conflict — hard block when floor > ceiling in same unit
@@ -162,6 +177,8 @@
     capeFloorPct; capeFloorDollar; capeCeilPct; capeCeilDollar;
     tobinPrevYearPct; tobinSpendingRate; tobinInflationAdjust;
     tobinFloorEnabled; tobinFloorPct; tobinFloorDollar; tobinCeilEnabled; tobinCeilPct; tobinCeilDollar;
+    sensibleMode; sensibleAmountStr; sensiblePct; sensibleExtrasRate;
+    sensibleCeilEnabled; sensibleCeilPct; sensibleCeilDollar;
     inflation; manualInflationPct; durationYears; startYearMin; startYearMax;
     assets.forEach(a => { a.enabled; a.pct; });
     allocationMode; glideStepCondition; glideStepSize; glideAthThreshold;
@@ -198,15 +215,20 @@
       tobinPrevYearPct,
       tobinSpendingRate,
       tobinInflationAdjust,
+      sensibleMode,
+      sensibleAmount:     sensibleAmountNum,
+      sensiblePct,
+      sensibleExtrasRate,
       withdrawalFloor:
         strategy === 'percent-of-portfolio' ? (floorEnabled     ? { pctValue: null,         dollarValue: pctFloorValue   } : null) :
         strategy === 'cape'                 ? (floorEnabled     ? { pctValue: capeFloorPct,  dollarValue: capeFloorDollar } : null) :
         strategy === 'tobin'                ? (tobinFloorEnabled ? { pctValue: tobinFloorPct, dollarValue: tobinFloorDollar } : null) :
         null,
       withdrawalCeiling:
-        strategy === 'percent-of-portfolio' ? (ceilEnabled     ? { pctValue: null,        dollarValue: pctCeilValue   } : null) :
-        strategy === 'cape'                 ? (ceilEnabled     ? { pctValue: capeCeilPct,  dollarValue: capeCeilDollar } : null) :
-        strategy === 'tobin'                ? (tobinCeilEnabled ? { pctValue: tobinCeilPct, dollarValue: tobinCeilDollar } : null) :
+        strategy === 'percent-of-portfolio' ? (ceilEnabled         ? { pctValue: null,           dollarValue: pctCeilValue      } : null) :
+        strategy === 'cape'                 ? (ceilEnabled         ? { pctValue: capeCeilPct,     dollarValue: capeCeilDollar    } : null) :
+        strategy === 'tobin'                ? (tobinCeilEnabled     ? { pctValue: tobinCeilPct,    dollarValue: tobinCeilDollar   } : null) :
+        strategy === 'sensible'             ? (sensibleCeilEnabled ? { pctValue: sensibleCeilPct, dollarValue: sensibleCeilDollar } : null) :
         null,
       inflationSeries: inflation,
       manualInflationRate: manualInflationPct,
@@ -350,6 +372,7 @@
       <option value="percent-of-portfolio">Percent of portfolio</option>
       <option value="cape">CAPE (Shiller)</option>
       <option value="tobin">Tobin / Yale</option>
+      <option value="sensible">Sensible Withdrawals</option>
     </select>
 
     {#if strategy === 'constant-dollar'}
@@ -410,7 +433,7 @@
         <input type="number" min="0" step="0.1" bind:value={capeMultiplier} />
       </label>
       <p class="derived-hint">Rate = base + multiplier ÷ CAPE. E.g. at CAPE 25: {(capeBasePct + capeMultiplier / 25).toFixed(2)}%</p>
-    {:else}
+    {:else if strategy === 'tobin'}
       <label class="field">
         <span>Prev-year weight</span>
         <div class="input-adorn">
@@ -436,6 +459,51 @@
         <input type="checkbox" bind:checked={tobinInflationAdjust} />
         Inflation-adjust previous year
       </label>
+    {:else if strategy === 'sensible'}
+      <p class="sub-label">Base withdrawal</p>
+      <div class="radio-group sub-radio">
+        <label>
+          <input type="radio" bind:group={sensibleMode} value="amount" />
+          Dollar amount
+        </label>
+        <label>
+          <input type="radio" bind:group={sensibleMode} value="pct-of-portfolio" />
+          % of portfolio
+        </label>
+      </div>
+      {#if sensibleMode === 'amount'}
+        <label class="field">
+          <span>Annual base withdrawal</span>
+          <div class="input-adorn">
+            <span class="adorn-left">$</span>
+            <input
+              type="text"
+              inputmode="numeric"
+              bind:value={sensibleAmountStr}
+              onfocus={() => stripOnFocus(() => sensibleAmountStr, v => (sensibleAmountStr = v))}
+              onblur={() => fmtOnBlur(() => sensibleAmountStr, v => (sensibleAmountStr = v))}
+            />
+          </div>
+        </label>
+        <p class="derived-hint">Inflation-adjusted — grows with CPI each year.</p>
+      {:else}
+        <label class="field">
+          <span>Annual base withdrawal</span>
+          <div class="input-adorn">
+            <input type="number" min="0" max="100" step="0.1" bind:value={sensiblePct} />
+            <span class="adorn-right">%</span>
+          </div>
+        </label>
+        <p class="derived-hint">= ${fmt(portfolioValue * sensiblePct / 100)} / yr, inflation-adjusted each year.</p>
+      {/if}
+      <label class="field">
+        <span>Extras</span>
+        <div class="input-adorn">
+          <input type="number" min="0" max="100" step="1" bind:value={sensibleExtrasRate} />
+          <span class="adorn-right">%</span>
+        </div>
+      </label>
+      <p class="derived-hint">% of real portfolio gain (above inflation) withdrawn as a bonus each year.</p>
     {/if}
 
     {#if strategy === 'percent-of-portfolio'}
@@ -555,6 +623,31 @@
               <div class="input-adorn">
                 <span class="adorn-left">$</span>
                 <input type="number" min="0" step="1000" bind:value={tobinCeilDollar} />
+              </div>
+            </div>
+          </div>
+          <p class="bound-note">Effective ceiling = lowest non-null value each year.</p>
+        {/if}
+      </div>
+    {:else if strategy === 'sensible'}
+      <div class="bound-row">
+        <label class="checkbox-label">
+          <input type="checkbox" bind:checked={sensibleCeilEnabled} /> Max withdrawal (ceiling)
+        </label>
+        {#if sensibleCeilEnabled}
+          <div class="dual-bound">
+            <div class="dual-bound-field">
+              <span class="dual-bound-label">% of portfolio</span>
+              <div class="input-adorn">
+                <input type="number" min="0" step="0.1" placeholder="none" bind:value={sensibleCeilPct} />
+                <span class="adorn-right">%</span>
+              </div>
+            </div>
+            <div class="dual-bound-field">
+              <span class="dual-bound-label">$ (infl-adj.)</span>
+              <div class="input-adorn">
+                <span class="adorn-left">$</span>
+                <input type="number" min="0" step="1000" placeholder="none" bind:value={sensibleCeilDollar} />
               </div>
             </div>
           </div>
@@ -703,6 +796,30 @@
             <ul>
               <li>Variable year-to-year income, although potentially more stable than Percent of Portfolio</li>
               <li>Formula less intuitive than other strategies</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <div class="strategy-card">
+        <h3>Sensible Withdrawals</h3>
+        <p>Each year you take a stable, inflation-adjusted base amount. If your portfolio grew faster than inflation over the past year, you also withdraw a percentage of that real gain as "extras". In bad years — when the portfolio underperformed inflation — extras fall to zero and you live on the base alone.</p>
+        <div class="pros-cons">
+          <div class="pros-col">
+            <p class="pros-header">Pros</p>
+            <ul>
+              <li>Predictable baseline income you can plan around</li>
+              <li>Participates in market upside without locking in an unsustainably high base rate</li>
+              <li>Higher chance of portfolio survival than constant-dollar, as the base can be set conservatively</li>
+              <li>Lower withdrawal volatility than pure percent-of-portfolio in sustained downturns</li>
+            </ul>
+          </div>
+          <div class="cons-col">
+            <p class="cons-header">Cons</p>
+            <ul>
+              <li>"Extras" may be zero for many years during prolonged bear markets or high-inflation periods</li>
+              <li>Total withdrawal is unpredictable — income planning requires treating the base as the floor</li>
+              <li>Sensitive to the extras percentage choice: too high erodes the portfolio in bull markets; too low gives negligible upside participation</li>
             </ul>
           </div>
         </div>

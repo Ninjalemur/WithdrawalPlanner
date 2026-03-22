@@ -18,13 +18,14 @@
   let hView  = $state<MoneyView>('nominal');
   let ddView = $state<MoneyView>('nominal');
 
-  let allocEl:         HTMLDivElement | undefined = $state();
-  let portfolioEl:     HTMLDivElement | undefined = $state();
-  let withdrawalEl:    HTMLDivElement | undefined = $state();
-  let wRateEl:         HTMLDivElement | undefined = $state();
-  let sufficiencyEl:   HTMLDivElement | undefined = $state();
-  let histEl:          HTMLDivElement | undefined = $state();
-  let drawdownEl:      HTMLDivElement | undefined = $state();
+  let allocEl:               HTMLDivElement | undefined = $state();
+  let portfolioEl:           HTMLDivElement | undefined = $state();
+  let withdrawalEl:          HTMLDivElement | undefined = $state();
+  let sensibleBreakdownEl:   HTMLDivElement | undefined = $state();
+  let wRateEl:               HTMLDivElement | undefined = $state();
+  let sufficiencyEl:         HTMLDivElement | undefined = $state();
+  let histEl:                HTMLDivElement | undefined = $state();
+  let drawdownEl:            HTMLDivElement | undefined = $state();
 
   // Per-year running drawdown: 0% at peak, positive when below (50% = half of peak)
   function runningDrawdown(values: number[]): number[] {
@@ -195,6 +196,37 @@
       traces,
       {
         ...baseLayout(real ? 'Amount (start-yr $)' : 'Amount ($)', 40),
+        showlegend: true,
+        legend: { orientation: 'h', x: 0.5, xanchor: 'center', y: 1.18 },
+      },
+      plotConfig,
+    );
+  });
+
+  $effect(() => {
+    if (!sensibleBreakdownEl || strategy !== 'sensible') return;
+    const real = wView === 'real';
+    const baseY   = sim.years.map(y => r3(real ? y.sensibleBase   / y.cumulativeInflationFactor : y.sensibleBase));
+    const extrasY = sim.years.map(y => r3(real ? y.sensibleExtras / y.cumulativeInflationFactor : y.sensibleExtras));
+    Plotly.react(
+      sensibleBreakdownEl,
+      [
+        {
+          type: 'bar', name: 'Base',
+          x: xs, y: baseY, customdata: ym,
+          marker: { color: '#3b82f6' },
+          hovertemplate: '%{customdata}<br>Base: $%{y:,.0f}<extra></extra>',
+        },
+        {
+          type: 'bar', name: 'Extras',
+          x: xs, y: extrasY, customdata: ym,
+          marker: { color: '#10b981' },
+          hovertemplate: '%{customdata}<br>Extras: $%{y:,.0f}<extra></extra>',
+        },
+      ],
+      {
+        ...baseLayout(real ? 'Amount (start-yr $)' : 'Amount ($)', 40),
+        barmode: 'stack',
         showlegend: true,
         legend: { orientation: 'h', x: 0.5, xanchor: 'center', y: 1.18 },
       },
@@ -384,8 +416,23 @@
     <div bind:this={wRateEl} class="chart"></div>
   </div>
 
+  <!-- Sensible Withdrawals: Base + Extras breakdown (stacked bar) -->
+  {#if strategy === 'sensible'}
+    <div class="card">
+      <div class="section-header">
+        <h2>Withdrawal Breakdown: Base &amp; Extras</h2>
+        <div class="toggle-group">
+          <button class:active={wView === 'nominal'} onclick={() => wView = 'nominal'}>Nominal</button>
+          <button class:active={wView === 'real'}    onclick={() => wView = 'real'}>Real</button>
+        </div>
+      </div>
+      <p class="view-note">Blue = inflation-adjusted base withdrawal. Green = extras from real portfolio gains above inflation.</p>
+      <div bind:this={sensibleBreakdownEl} class="chart"></div>
+    </div>
+  {/if}
+
   <!-- Withdrawal Sufficiency Over Time (variable strategies only) -->
-  {#if strategy === 'percent-of-portfolio' || strategy === 'cape' || strategy === 'tobin'}
+  {#if strategy === 'percent-of-portfolio' || strategy === 'cape' || strategy === 'tobin' || strategy === 'sensible'}
     <div class="card">
       <h2>Withdrawal Sufficiency Over Time</h2>
       <p class="view-note">Actual withdrawal as % of desired expense. 100% = fully met, below 100% = shortfall.</p>
@@ -437,6 +484,7 @@
             <th>Portfolio Before</th>
             <th>Desired Expense</th>
             <th>Withdrawn</th>
+            {#if strategy === 'sensible'}<th>Base</th><th>Extras</th>{/if}
             <th>W. Rate %</th>
             <th>Sufficiency</th>
             <th>Portfolio After</th>
@@ -458,6 +506,10 @@
               <td>{fmtD(y.portfolioBeforeWithdrawal)}</td>
               <td>{fmtD(y.desiredExpense)}</td>
               <td>{fmtD(y.withdrawn)}</td>
+              {#if strategy === 'sensible'}
+                <td>{fmtD(y.sensibleBase)}</td>
+                <td>{fmtD(y.sensibleExtras)}</td>
+              {/if}
               <td>{withdrawalRates[i].toFixed(2)}%</td>
               <td class:suff-ok={y.sufficiency >= 1} class:suff-low={y.sufficiency < 1}>{fmtPct(y.sufficiency)}</td>
               <td>{fmtD(y.portfolioAfter)}</td>

@@ -7,7 +7,7 @@ export interface SimulationInputs {
   portfolioValue: number;
   /** Initial (or fixed) allocation. For glidepath this is the starting allocation. */
   allocations: Array<{ id: string; pct: number }>;
-  strategy: 'constant-dollar' | 'percent-of-portfolio' | 'cape' | 'tobin';
+  strategy: 'constant-dollar' | 'percent-of-portfolio' | 'cape' | 'tobin' | 'sensible';
   withdrawalAmount: number;  // used when strategy = 'constant-dollar'
   withdrawalPct: number;     // used when strategy = 'percent-of-portfolio', 0-100
   capeBasePct:    number;    // used when strategy = 'cape', e.g. 1.95 (= 1.95%)
@@ -15,6 +15,10 @@ export interface SimulationInputs {
   tobinPrevYearPct:     number;  // used when strategy = 'tobin': weight on prior year's withdrawal (0–100)
   tobinSpendingRate:    number;  // used when strategy = 'tobin': spending rate applied to portfolio (0–100)
   tobinInflationAdjust: boolean; // used when strategy = 'tobin': inflate prior year component by annual CPI
+  sensibleMode:       'amount' | 'pct-of-portfolio'; // used when strategy = 'sensible'
+  sensibleAmount:     number;  // nominal dollars at simulation start (dollar mode)
+  sensiblePct:        number;  // % of initial portfolio, inflation-adjusted each year (pct mode)
+  sensibleExtrasRate: number;  // 0–100, % of real portfolio gain above inflation to withdraw as extras
   withdrawalFloor:   WithdrawalBound | null; // null = disabled; applies to 'pct' and 'cape'
   withdrawalCeiling: WithdrawalBound | null; // null = disabled; applies to 'pct' and 'cape'
   inflationSeries: 'inflation-us' | 'inflation-singapore' | 'manual';

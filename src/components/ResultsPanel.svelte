@@ -284,11 +284,13 @@
     const stats = sims.map(s =>
       computeStats(s.years.map(y => r3(isReal ? y.withdrawn / y.cumulativeInflationFactor : y.withdrawn)))
     );
+    const mn  = stats.map(st => st.min);
     const p5  = stats.map(st => st.p5);
     const p25 = stats.map(st => st.p25);
     const med = stats.map(st => st.median);
     const p75 = stats.map(st => st.p75);
     const p95 = stats.map(st => st.p95);
+    const mx  = stats.map(st => st.max);
     const base = { type: 'scatter' as const, mode: 'lines' as const };
     Plotly.react(
       withdrawalBandChartEl,
@@ -298,8 +300,8 @@
         { ...base, x: xs, y: p75, line: { width: 0 }, showlegend: false, hoverinfo: 'skip' as const },
         { ...base, x: xs, y: p25, line: { width: 0 }, fill: 'tonexty' as const, fillcolor: 'rgba(59,130,246,0.35)', name: 'P25–P75', hoverinfo: 'skip' as const },
         { ...base, x: xs, y: med, line: { color: '#3b82f6', width: 2 }, name: 'Median',
-          customdata: dates.map((d, i) => [d, p5[i], p25[i], p75[i], p95[i]]),
-          hovertemplate: '%{customdata[0]}<br>P5: $%{customdata[1]:,.0f}<br>P25: $%{customdata[2]:,.0f}<br>Median: $%{y:,.0f}<br>P75: $%{customdata[3]:,.0f}<br>P95: $%{customdata[4]:,.0f}<extra></extra>' },
+          customdata: dates.map((d, i) => [d, mn[i], p5[i], p25[i], p75[i], p95[i], mx[i]]),
+          hovertemplate: '%{customdata[0]}<br>Min: $%{customdata[1]:,.0f}<br>P5: $%{customdata[2]:,.0f}<br>P25: $%{customdata[3]:,.0f}<br>Median: $%{y:,.0f}<br>P75: $%{customdata[4]:,.0f}<br>P95: $%{customdata[5]:,.0f}<br>Max: $%{customdata[6]:,.0f}<extra></extra>' },
       ],
       {
         ...makeLayout('Withdrawal ($)'),
@@ -358,11 +360,13 @@
     const xs    = sims.map(s => s.startYear + (s.startMonth - 1) / 12);
     const dates = sims.map(s => `${s.startYear}-${String(s.startMonth).padStart(2, '0')}`);
     const stats = sims.map(s => computeStats(s.years.map(y => r3(y.sufficiency * 100))));
+    const mn  = stats.map(st => st.min);
     const p5  = stats.map(st => st.p5);
     const p25 = stats.map(st => st.p25);
     const med = stats.map(st => st.median);
     const p75 = stats.map(st => st.p75);
     const p95 = stats.map(st => st.p95);
+    const mx  = stats.map(st => st.max);
     const base = { type: 'scatter' as const, mode: 'lines' as const };
     Plotly.react(
       suffBandChartEl,
@@ -372,8 +376,8 @@
         { ...base, x: xs, y: p75, line: { width: 0 }, showlegend: false, hoverinfo: 'skip' as const },
         { ...base, x: xs, y: p25, line: { width: 0 }, fill: 'tonexty' as const, fillcolor: 'rgba(59,130,246,0.35)', name: 'P25–P75', hoverinfo: 'skip' as const },
         { ...base, x: xs, y: med, line: { color: '#3b82f6', width: 2 }, name: 'Median',
-          customdata: dates.map((d, i) => [d, p5[i], p25[i], p75[i], p95[i]]),
-          hovertemplate: '%{customdata[0]}<br>P5: %{customdata[1]:.1f}%<br>P25: %{customdata[2]:.1f}%<br>Median: %{y:.1f}%<br>P75: %{customdata[3]:.1f}%<br>P95: %{customdata[4]:.1f}%<extra></extra>' },
+          customdata: dates.map((d, i) => [d, mn[i], p5[i], p25[i], p75[i], p95[i], mx[i]]),
+          hovertemplate: '%{customdata[0]}<br>Min: %{customdata[1]:.1f}%<br>P5: %{customdata[2]:.1f}%<br>P25: %{customdata[3]:.1f}%<br>Median: %{y:.1f}%<br>P75: %{customdata[4]:.1f}%<br>P95: %{customdata[5]:.1f}%<br>Max: %{customdata[6]:.1f}%<extra></extra>' },
       ],
       {
         ...makeLayout('Sufficiency (%)'),
@@ -428,11 +432,13 @@
         r3(y.portfolioBeforeWithdrawal > 0 ? (y.withdrawn / y.portfolioBeforeWithdrawal) * 100 : 0)
       ))
     );
+    const mn  = stats.map(st => st.min);
     const p5  = stats.map(st => st.p5);
     const p25 = stats.map(st => st.p25);
     const med = stats.map(st => st.median);
     const p75 = stats.map(st => st.p75);
     const p95 = stats.map(st => st.p95);
+    const mx  = stats.map(st => st.max);
     const base = { type: 'scatter' as const, mode: 'lines' as const };
     Plotly.react(
       wRateBandChartEl,
@@ -442,8 +448,8 @@
         { ...base, x: xs, y: p75, line: { width: 0 }, showlegend: false, hoverinfo: 'skip' as const },
         { ...base, x: xs, y: p25, line: { width: 0 }, fill: 'tonexty' as const, fillcolor: 'rgba(139,92,246,0.35)', name: 'P25–P75', hoverinfo: 'skip' as const },
         { ...base, x: xs, y: med, line: { color: '#8b5cf6', width: 2 }, name: 'Median',
-          customdata: dates.map((d, i) => [d, p5[i], p25[i], p75[i], p95[i]]),
-          hovertemplate: '%{customdata[0]}<br>P5: %{customdata[1]:.2f}%<br>P25: %{customdata[2]:.2f}%<br>Median: %{y:.2f}%<br>P75: %{customdata[3]:.2f}%<br>P95: %{customdata[4]:.2f}%<extra></extra>' },
+          customdata: dates.map((d, i) => [d, mn[i], p5[i], p25[i], p75[i], p95[i], mx[i]]),
+          hovertemplate: '%{customdata[0]}<br>Min: %{customdata[1]:.2f}%<br>P5: %{customdata[2]:.2f}%<br>P25: %{customdata[3]:.2f}%<br>Median: %{y:.2f}%<br>P75: %{customdata[4]:.2f}%<br>P95: %{customdata[5]:.2f}%<br>Max: %{customdata[6]:.2f}%<extra></extra>' },
       ],
       {
         ...makeLayout('Withdrawal Rate (%)'),

@@ -53,20 +53,22 @@
   // Percent-of-portfolio: always dollar
   let pctFloorValue   = $state(20000);
   let pctCeilValue    = $state(100000);
-  // CAPE: pct or dollar
-  let floorType       = $state<'pct' | 'dollar'>('pct');
-  let floorValue      = $state(2);
-  let ceilType        = $state<'pct' | 'dollar'>('pct');
-  let ceilValue       = $state(6);
+  // CAPE: both pct and dollar simultaneously (null = not set)
+  let capeFloorPct    = $state<number | null>(null);
+  let capeFloorDollar = $state<number | null>(null);
+  let capeCeilPct     = $state<number | null>(null);
+  let capeCeilDollar  = $state<number | null>(null);
 
   // Tobin / Yale
   let tobinPrevYearPct     = $state(70);
   let tobinSpendingRate    = $state(5);
   let tobinInflationAdjust = $state(false);
   let tobinFloorEnabled    = $state(false);
-  let tobinFloorValue      = $state(20000);
+  let tobinFloorPct        = $state<number | null>(null);
+  let tobinFloorDollar     = $state(20000);
   let tobinCeilEnabled     = $state(false);
-  let tobinCeilValue       = $state(100000);
+  let tobinCeilPct         = $state<number | null>(null);
+  let tobinCeilDollar      = $state(100000);
 
   // Strategy info overlay
   let showStrategyInfo = $state(false);
@@ -121,29 +123,20 @@
   );
 
   // Bounds conflict — hard block when floor > ceiling in same unit
-  let boundsHardConflict = $derived(
+  let boundsDollarConflict = $derived(
     (strategy === 'percent-of-portfolio' && floorEnabled && ceilEnabled && pctFloorValue > pctCeilValue) ||
-    (strategy === 'cape'  && floorEnabled && ceilEnabled && floorType === ceilType && floorValue > ceilValue) ||
-    (strategy === 'tobin' && tobinFloorEnabled && tobinCeilEnabled && tobinFloorValue > tobinCeilValue)
+    (strategy === 'cape'  && floorEnabled && ceilEnabled &&
+      capeFloorDollar != null && capeCeilDollar != null && capeFloorDollar > capeCeilDollar) ||
+    (strategy === 'tobin' && tobinFloorEnabled && tobinCeilEnabled &&
+      tobinFloorDollar != null && tobinCeilDollar != null && tobinFloorDollar > tobinCeilDollar)
   );
-
-  // Cross-type soft warning (CAPE only — pct-of-portfolio can't have cross-type conflict)
-  let floorDollarAtStart = $derived(
-    floorEnabled && strategy === 'cape'
-      ? (floorType === 'pct' ? portfolioValue * floorValue / 100 : floorValue)
-      : 0
+  let boundsPctConflict = $derived(
+    (strategy === 'cape'  && floorEnabled && ceilEnabled &&
+      capeFloorPct != null && capeCeilPct != null && capeFloorPct > capeCeilPct) ||
+    (strategy === 'tobin' && tobinFloorEnabled && tobinCeilEnabled &&
+      tobinFloorPct != null && tobinCeilPct != null && tobinFloorPct > tobinCeilPct)
   );
-  let ceilDollarAtStart = $derived(
-    ceilEnabled && strategy === 'cape'
-      ? (ceilType === 'pct' ? portfolioValue * ceilValue / 100 : ceilValue)
-      : Infinity
-  );
-  let boundsSoftConflict = $derived(
-    strategy === 'cape' &&
-    floorEnabled && ceilEnabled &&
-    floorType !== ceilType &&
-    floorDollarAtStart > ceilDollarAtStart
-  );
+  let boundsHardConflict = $derived(boundsDollarConflict || boundsPctConflict);
 
   let isValid = $derived(
     allocationSum === 100 &&
@@ -165,9 +158,10 @@
     portfolioValueStr;
     strategy; constMode; withdrawalAmountStr; constPct; withdrawalPct;
     capeBasePct; capeMultiplier;
-    floorEnabled; pctFloorValue; pctCeilValue; ceilEnabled; floorType; floorValue; ceilType; ceilValue;
+    floorEnabled; pctFloorValue; pctCeilValue; ceilEnabled;
+    capeFloorPct; capeFloorDollar; capeCeilPct; capeCeilDollar;
     tobinPrevYearPct; tobinSpendingRate; tobinInflationAdjust;
-    tobinFloorEnabled; tobinFloorValue; tobinCeilEnabled; tobinCeilValue;
+    tobinFloorEnabled; tobinFloorPct; tobinFloorDollar; tobinCeilEnabled; tobinCeilPct; tobinCeilDollar;
     inflation; manualInflationPct; durationYears; startYearMin; startYearMax;
     assets.forEach(a => { a.enabled; a.pct; });
     allocationMode; glideStepCondition; glideStepSize; glideAthThreshold;
@@ -205,14 +199,14 @@
       tobinSpendingRate,
       tobinInflationAdjust,
       withdrawalFloor:
-        strategy === 'percent-of-portfolio' ? (floorEnabled  ? { type: 'dollar', value: pctFloorValue  } : null) :
-        strategy === 'tobin'                ? (tobinFloorEnabled ? { type: 'dollar', value: tobinFloorValue } : null) :
-        strategy === 'cape'                 ? (floorEnabled  ? { type: floorType,  value: floorValue   } : null) :
+        strategy === 'percent-of-portfolio' ? (floorEnabled     ? { pctValue: null,         dollarValue: pctFloorValue   } : null) :
+        strategy === 'cape'                 ? (floorEnabled     ? { pctValue: capeFloorPct,  dollarValue: capeFloorDollar } : null) :
+        strategy === 'tobin'                ? (tobinFloorEnabled ? { pctValue: tobinFloorPct, dollarValue: tobinFloorDollar } : null) :
         null,
       withdrawalCeiling:
-        strategy === 'percent-of-portfolio' ? (ceilEnabled   ? { type: 'dollar', value: pctCeilValue   } : null) :
-        strategy === 'tobin'                ? (tobinCeilEnabled  ? { type: 'dollar', value: tobinCeilValue  } : null) :
-        strategy === 'cape'                 ? (ceilEnabled   ? { type: ceilType,   value: ceilValue    } : null) :
+        strategy === 'percent-of-portfolio' ? (ceilEnabled     ? { pctValue: null,        dollarValue: pctCeilValue   } : null) :
+        strategy === 'cape'                 ? (ceilEnabled     ? { pctValue: capeCeilPct,  dollarValue: capeCeilDollar } : null) :
+        strategy === 'tobin'                ? (tobinCeilEnabled ? { pctValue: tobinCeilPct, dollarValue: tobinCeilDollar } : null) :
         null,
       inflationSeries: inflation,
       manualInflationRate: manualInflationPct,
@@ -475,15 +469,23 @@
           <input type="checkbox" bind:checked={floorEnabled} /> Min withdrawal (floor)
         </label>
         {#if floorEnabled}
-          <div class="radio-group sub-radio">
-            <label><input type="radio" bind:group={floorType} value="pct" /> % of portfolio</label>
-            <label><input type="radio" bind:group={floorType} value="dollar" /> $ (inflation-adj.)</label>
+          <div class="dual-bound">
+            <div class="dual-bound-field">
+              <span class="dual-bound-label">% of portfolio</span>
+              <div class="input-adorn">
+                <input type="number" min="0" step="0.1" placeholder="none" bind:value={capeFloorPct} />
+                <span class="adorn-right">%</span>
+              </div>
+            </div>
+            <div class="dual-bound-field">
+              <span class="dual-bound-label">$ (infl-adj.)</span>
+              <div class="input-adorn">
+                <span class="adorn-left">$</span>
+                <input type="number" min="0" step="1000" placeholder="none" bind:value={capeFloorDollar} />
+              </div>
+            </div>
           </div>
-          <div class="input-adorn">
-            {#if floorType === 'dollar'}<span class="adorn-left">$</span>{/if}
-            <input type="number" min="0" step={floorType === 'pct' ? 0.1 : 1000} bind:value={floorValue} />
-            {#if floorType === 'pct'}<span class="adorn-right">%</span>{/if}
-          </div>
+          <p class="bound-note">Effective floor = highest non-null value each year.</p>
         {/if}
       </div>
       <div class="bound-row">
@@ -491,15 +493,23 @@
           <input type="checkbox" bind:checked={ceilEnabled} /> Max withdrawal (ceiling)
         </label>
         {#if ceilEnabled}
-          <div class="radio-group sub-radio">
-            <label><input type="radio" bind:group={ceilType} value="pct" /> % of portfolio</label>
-            <label><input type="radio" bind:group={ceilType} value="dollar" /> $ (inflation-adj.)</label>
+          <div class="dual-bound">
+            <div class="dual-bound-field">
+              <span class="dual-bound-label">% of portfolio</span>
+              <div class="input-adorn">
+                <input type="number" min="0" step="0.1" placeholder="none" bind:value={capeCeilPct} />
+                <span class="adorn-right">%</span>
+              </div>
+            </div>
+            <div class="dual-bound-field">
+              <span class="dual-bound-label">$ (infl-adj.)</span>
+              <div class="input-adorn">
+                <span class="adorn-left">$</span>
+                <input type="number" min="0" step="1000" placeholder="none" bind:value={capeCeilDollar} />
+              </div>
+            </div>
           </div>
-          <div class="input-adorn">
-            {#if ceilType === 'dollar'}<span class="adorn-left">$</span>{/if}
-            <input type="number" min="0" step={ceilType === 'pct' ? 0.1 : 1000} bind:value={ceilValue} />
-            {#if ceilType === 'pct'}<span class="adorn-right">%</span>{/if}
-          </div>
+          <p class="bound-note">Effective ceiling = lowest non-null value each year.</p>
         {/if}
       </div>
     {:else if strategy === 'tobin'}
@@ -508,11 +518,23 @@
           <input type="checkbox" bind:checked={tobinFloorEnabled} /> Min withdrawal (floor)
         </label>
         {#if tobinFloorEnabled}
-          <div class="input-adorn">
-            <span class="adorn-left">$</span>
-            <input type="number" min="0" step="1000" bind:value={tobinFloorValue} />
+          <div class="dual-bound">
+            <div class="dual-bound-field">
+              <span class="dual-bound-label">% of portfolio</span>
+              <div class="input-adorn">
+                <input type="number" min="0" step="0.1" placeholder="none" bind:value={tobinFloorPct} />
+                <span class="adorn-right">%</span>
+              </div>
+            </div>
+            <div class="dual-bound-field">
+              <span class="dual-bound-label">$ (infl-adj.)</span>
+              <div class="input-adorn">
+                <span class="adorn-left">$</span>
+                <input type="number" min="0" step="1000" bind:value={tobinFloorDollar} />
+              </div>
+            </div>
           </div>
-          <p class="bound-note">Inflation-adjusted — grows with CPI each year.</p>
+          <p class="bound-note">Effective floor = highest non-null value each year.</p>
         {/if}
       </div>
       <div class="bound-row">
@@ -520,31 +542,35 @@
           <input type="checkbox" bind:checked={tobinCeilEnabled} /> Max withdrawal (ceiling)
         </label>
         {#if tobinCeilEnabled}
-          <div class="input-adorn">
-            <span class="adorn-left">$</span>
-            <input type="number" min="0" step="1000" bind:value={tobinCeilValue} />
+          <div class="dual-bound">
+            <div class="dual-bound-field">
+              <span class="dual-bound-label">% of portfolio</span>
+              <div class="input-adorn">
+                <input type="number" min="0" step="0.1" placeholder="none" bind:value={tobinCeilPct} />
+                <span class="adorn-right">%</span>
+              </div>
+            </div>
+            <div class="dual-bound-field">
+              <span class="dual-bound-label">$ (infl-adj.)</span>
+              <div class="input-adorn">
+                <span class="adorn-left">$</span>
+                <input type="number" min="0" step="1000" bind:value={tobinCeilDollar} />
+              </div>
+            </div>
           </div>
-          <p class="bound-note">Inflation-adjusted — grows with CPI each year.</p>
+          <p class="bound-note">Effective ceiling = lowest non-null value each year.</p>
         {/if}
       </div>
     {/if}
 
-    {#if boundsHardConflict}
-      <p class="error-msg">
-        {#if strategy === 'percent-of-portfolio'}
-          Floor (${fmt(pctFloorValue)}) exceeds ceiling (${fmt(pctCeilValue)}) — adjust bounds before running.
-        {:else if strategy === 'tobin'}
-          Floor (${fmt(tobinFloorValue)}) exceeds ceiling (${fmt(tobinCeilValue)}) — adjust bounds before running.
-        {:else}
-          Floor ({floorType === 'pct' ? floorValue + '%' : '$' + fmt(floorValue)}) exceeds ceiling
-          ({ceilType === 'pct' ? ceilValue + '%' : '$' + fmt(ceilValue)}) — adjust bounds before running.
-        {/if}
-      </p>
-    {:else if boundsSoftConflict}
-      <p class="warn-msg">
-        Floor (${fmt(floorDollarAtStart)}) exceeds ceiling (${fmt(ceilDollarAtStart)}) at current
-        portfolio value — floor will take priority each year.
-      </p>
+    {#if strategy === 'percent-of-portfolio' && boundsHardConflict}
+      <p class="error-msg">Floor dollar amount should not exceed ceiling dollar amount — adjust inputs before running.</p>
+    {/if}
+    {#if strategy !== 'percent-of-portfolio' && boundsDollarConflict}
+      <p class="error-msg">Floor dollar amount should not exceed ceiling dollar amount — adjust inputs before running.</p>
+    {/if}
+    {#if boundsPctConflict}
+      <p class="error-msg">Floor % of portfolio should not exceed ceiling % of portfolio — adjust inputs before running.</p>
     {/if}
 
     {#if withdrawalInvalid}
@@ -810,16 +836,6 @@
     padding: 0.5rem 0.625rem;
   }
 
-  .warn-msg {
-    margin: 0;
-    font-size: 0.75rem;
-    color: #92400e;
-    background: #fffbeb;
-    border: 1px solid #fcd34d;
-    border-radius: 4px;
-    padding: 0.5rem 0.625rem;
-  }
-
   /* ---- static allocation rows ---- */
   .asset-row {
     display: flex;
@@ -987,6 +1003,25 @@
     font-size: 0.7rem;
     color: #9ca3af;
     font-style: italic;
+  }
+
+  .dual-bound {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+  }
+
+  .dual-bound-field {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .dual-bound-label {
+    font-size: 0.75rem;
+    color: #6b7280;
+    min-width: 6.5rem;
+    flex-shrink: 0;
   }
 
   .checkbox-label {

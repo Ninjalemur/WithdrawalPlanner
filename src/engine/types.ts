@@ -8,6 +8,8 @@ export interface YearResult {
   portfolioAfter: number;            // after withdrawal and rebalance
   cumulativeInflationFactor: number; // ∏(1 + inf) for steps 0..i-1; used to compute real values
   allocations: { id: string; pct: number }[]; // target allocation used for rebalance this year
+  effectiveFloor:   number; // computed floor for this step (-Infinity if no floor)
+  effectiveCeiling: number; // computed ceiling for this step (Infinity if no ceiling)
   boundsConflict: boolean; // true if floor > ceiling for this year (floor took priority)
 }
 

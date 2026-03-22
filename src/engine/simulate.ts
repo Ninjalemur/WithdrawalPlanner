@@ -251,20 +251,28 @@ function runOneSimulation(
 
     // Apply floor/ceiling bounds (variable strategies only); floor wins when lo > hi
     let targetWithdrawal = formulaWithdrawal;
-    let boundsConflict = false;
+    let effectiveFloor   = -Infinity;
+    let effectiveCeiling =  Infinity;
+    let boundsConflict   = false;
     if (strategy !== 'constant-dollar' && (withdrawalFloor || withdrawalCeiling)) {
-      const lo = withdrawalFloor
-        ? (withdrawalFloor.type === 'pct'
-            ? portfolioBeforeWithdrawal * withdrawalFloor.value / 100
-            : withdrawalFloor.value * cumInflation)
-        : -Infinity;
-      const hi = withdrawalCeiling
-        ? (withdrawalCeiling.type === 'pct'
-            ? portfolioBeforeWithdrawal * withdrawalCeiling.value / 100
-            : withdrawalCeiling.value * cumInflation)
-        : Infinity;
-      boundsConflict = isFinite(lo) && isFinite(hi) && lo > hi;
-      targetWithdrawal = boundsConflict ? lo : Math.max(lo, Math.min(hi, targetWithdrawal));
+      const loVals: number[] = [];
+      if (withdrawalFloor?.dollarValue != null)
+        loVals.push(withdrawalFloor.dollarValue * cumInflation);
+      if (withdrawalFloor?.pctValue != null)
+        loVals.push(portfolioBeforeWithdrawal * withdrawalFloor.pctValue / 100);
+      if (loVals.length) effectiveFloor = Math.max(...loVals);
+
+      const hiVals: number[] = [];
+      if (withdrawalCeiling?.dollarValue != null)
+        hiVals.push(withdrawalCeiling.dollarValue * cumInflation);
+      if (withdrawalCeiling?.pctValue != null)
+        hiVals.push(portfolioBeforeWithdrawal * withdrawalCeiling.pctValue / 100);
+      if (hiVals.length) effectiveCeiling = Math.min(...hiVals);
+
+      boundsConflict = isFinite(effectiveFloor) && isFinite(effectiveCeiling) && effectiveFloor > effectiveCeiling;
+      targetWithdrawal = boundsConflict
+        ? effectiveFloor
+        : Math.max(effectiveFloor, Math.min(effectiveCeiling, targetWithdrawal));
     }
 
     // Tobin: capture targetWithdrawal (pre-depletion clamp) as the feedback value for next year
@@ -308,6 +316,8 @@ function runOneSimulation(
       portfolioAfter,
       cumulativeInflationFactor: cumInflation,
       allocations: assetIds.map((id, j) => ({ id, pct: currentTarget[j] * 100 })),
+      effectiveFloor,
+      effectiveCeiling,
       boundsConflict,
     });
 

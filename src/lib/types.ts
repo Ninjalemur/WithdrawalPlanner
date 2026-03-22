@@ -1,6 +1,6 @@
 export interface WithdrawalBound {
-  type: 'pct' | 'dollar';
-  value: number; // percent (e.g. 3 = 3%) or nominal dollars at simulation start
+  pctValue:    number | null; // % of portfolio (e.g. 3 = 3%), null = not set
+  dollarValue: number | null; // nominal dollars at simulation start, null = not set
 }
 
 export interface SimulationInputs {

@@ -294,7 +294,9 @@
     );
   });
 
-  const hasConflict = sim.years.some(y => y.boundsConflict);
+  const hasConflict    = sim.years.some(y => y.boundsConflict);
+  const hasFloorCol    = sim.years.some(y => isFinite(y.effectiveFloor));
+  const hasCeilingCol  = sim.years.some(y => isFinite(y.effectiveCeiling));
 
   const fmtD = (n: number) => (n < 0 ? '-$' : '$') + Math.round(Math.abs(n)).toLocaleString('en-US');
   const fmtPct = (n: number) => (n * 100).toFixed(1) + '%';
@@ -423,6 +425,9 @@
       Each year: <strong>Portfolio Before</strong> is the value at the start of the year.
       The <strong>withdrawal</strong> is taken first, then the year's return is applied to the
       remaining balance to give <strong>Portfolio After</strong>.
+      {#if hasConflict}
+        <br/><span class="conflict-legend-dot"></span> Effective floor took precedent over effective ceiling.
+      {/if}
     </p>
     <div class="table-wrap">
       <table>
@@ -439,7 +444,8 @@
             <th>DD (Nominal)</th>
             <th>DD (Real)</th>
             {#if strategy === 'cape'}<th>CAPE</th>{/if}
-            {#if hasConflict}<th>Conflict</th>{/if}
+            {#if hasFloorCol}<th>Eff. Floor</th>{/if}
+            {#if hasCeilingCol}<th>Eff. Ceiling</th>{/if}
             {#if sim.allocationMode === 'glidepath'}
               <th>Allocation</th>
             {/if}
@@ -461,9 +467,16 @@
               {#if strategy === 'cape'}
                 <td>{capePerYear[i] !== null ? capePerYear[i]!.toFixed(1) : '—'}</td>
               {/if}
-              {#if hasConflict}
-                <td class="conflict-cell" title={y.boundsConflict ? 'Floor overrode ceiling this year' : ''}>
-                  {y.boundsConflict ? '⚠' : ''}
+              {#if hasFloorCol}
+                <td class:bounds-conflict-cell={y.boundsConflict}>
+                  {isFinite(y.effectiveFloor) ? fmtD(y.effectiveFloor) : '—'}
+                  {#if y.boundsConflict}<span class="conflict-dot" title="Floor took precedent over ceiling"></span>{/if}
+                </td>
+              {/if}
+              {#if hasCeilingCol}
+                <td class:bounds-conflict-cell={y.boundsConflict}>
+                  {isFinite(y.effectiveCeiling) ? fmtD(y.effectiveCeiling) : '—'}
+                  {#if y.boundsConflict}<span class="conflict-dot" title="Floor took precedent over ceiling"></span>{/if}
                 </td>
               {/if}
               {#if sim.allocationMode === 'glidepath'}
@@ -654,6 +667,24 @@
   .suff-ok { color: #10b981; font-weight: 600; }
   .suff-low { color: #ef4444; }
   .dd-nonzero { color: #ef4444; }
-  .conflict-cell { color: #d97706; text-align: center; }
   .alloc-cell { text-align: left; color: #6b7280; font-size: 0.72rem; white-space: nowrap; }
+  .bounds-conflict-cell { background: #fef9c3; }
+  .conflict-dot {
+    display: inline-block;
+    width: 0.55rem;
+    height: 0.55rem;
+    border-radius: 50%;
+    background: #ca8a04;
+    margin-left: 0.25rem;
+    vertical-align: middle;
+  }
+  .conflict-legend-dot {
+    display: inline-block;
+    width: 0.6rem;
+    height: 0.6rem;
+    border-radius: 50%;
+    background: #ca8a04;
+    vertical-align: middle;
+    margin-right: 0.1rem;
+  }
 </style>

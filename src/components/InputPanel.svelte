@@ -104,7 +104,8 @@
   );
 
   let yearFilterInvalid = $derived(
-    startYearMin !== null && startYearMax !== null && startYearMin > startYearMax
+    startYearMin !== null && startYearMax !== null &&
+    startYearMin > startYearMax - durationYears
   );
 
   let tobinInvalid = $derived(
@@ -583,15 +584,15 @@
   <section class="card">
     <h2>Date Filter</h2>
     <label class="field">
-      <span>First year</span>
+      <span>Earliest start year</span>
       <input type="number" min="1800" max="2100" placeholder="—" bind:value={startYearMin} />
     </label>
     <label class="field">
-      <span>Last year</span>
+      <span>Latest end year</span>
       <input type="number" min="1800" max="2100" placeholder="—" bind:value={startYearMax} />
     </label>
     {#if yearFilterInvalid}
-      <p class="error-msg">First year must not exceed last year.</p>
+      <p class="error-msg">No simulation fits: earliest start + duration exceeds latest end year.</p>
     {/if}
   </section>
 

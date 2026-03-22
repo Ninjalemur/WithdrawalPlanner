@@ -333,7 +333,7 @@ function runOneSimulation(
   return {
     startYear,
     startMonth,
-    endYear: startYear + durationYears - 1,
+    endYear: startYear + durationYears, // year of final portfolio measurement (end of last return period)
     failed,
     years,
     initialPortfolio,
@@ -385,24 +385,31 @@ export function runSimulations(inputs: SimulationInputs): AggregatedResults {
     getInflation = (key: number) => inflMap!.get(key) ?? 0;
   }
 
-  // Find overlapping month range across all selected return series + inflation
-  let rangeMinLM = -Infinity;
-  let rangeMaxLM =  Infinity;
+  // Find overlapping month range — track returns and inflation separately for correct lastStart
+  let rangeMinLM   = -Infinity;
+  let returnsMaxLM =  Infinity;  // min of all return map maxes
+  let inflMaxLM    =  Infinity;  // inflation map max (Infinity when manual)
 
   for (const m of assetMaps) {
     const [lo, hi] = mapMonthRange(m);
-    rangeMinLM = Math.max(rangeMinLM, lo);
-    rangeMaxLM = Math.min(rangeMaxLM, hi);
+    rangeMinLM   = Math.max(rangeMinLM,   lo);
+    returnsMaxLM = Math.min(returnsMaxLM, hi);
   }
   if (inflMap) {
     const [lo, hi] = mapMonthRange(inflMap);
     rangeMinLM = Math.max(rangeMinLM, lo);
-    rangeMaxLM = Math.min(rangeMaxLM, hi);
+    inflMaxLM  = Math.min(inflMaxLM,  hi);
   }
 
-  // Valid starts: last step (i = durationYears-1) needs inflation at (startYear+durationYears, startMonth)
-  // = startLM + 12*durationYears ≤ rangeMaxLM
-  const lastStart = rangeMaxLM - 12 * inputs.durationYears;
+  const rangeMaxLM = Math.min(returnsMaxLM, inflMaxLM); // for early-return guard and rangeMinLM check
+
+  // Returns need: startLM + 12*(N-1) ≤ returnsMaxLM
+  // Inflation needs: startLM + 12*N ≤ inflMaxLM
+  // Use the more restrictive of both constraints
+  const lastStart = Math.min(
+    returnsMaxLM - 12 * (inputs.durationYears - 1),
+    inflMaxLM    - 12 * inputs.durationYears,
+  );
 
   // Apply year filter — more restrictive of user input vs data range wins
   let effectiveMinLM = rangeMinLM;
@@ -411,16 +418,21 @@ export function runSimulations(inputs: SimulationInputs): AggregatedResults {
     effectiveMinLM = Math.max(effectiveMinLM, ymToLM(inputs.startYearMin, 1));
   }
   if (inputs.startYearMax !== null) {
-    effectiveMaxLM = Math.min(effectiveMaxLM, ymToLM(inputs.startYearMax, 12));
+    // "Latest end year Y": last return key (= effectiveMaxLM + 12*(N-1)) must end in year ≤ Y.
+    // Key YYYY ends in year YYYY+1, so last key year ≤ Y-1 → last key ≤ ymToLM(Y-1, 12)
+    // → effectiveMaxLM ≤ ymToLM(Y-1, 12) - 12*(N-1) = ymToLM(Y-N, 12)
+    effectiveMaxLM = Math.min(effectiveMaxLM, ymToLM(inputs.startYearMax - inputs.durationYears, 12));
   }
 
-  // Display range reflects the effective simulated start range (post-filter + post-data-clamp)
+  // Display range: first sim's start → end of last return period
+  // Return key YYYYMM covers the 12-month period ending at month YYYYMM+12 (same month next year)
   const { year: dataStartYear, month: dataStartMonth } = lmToYM(
     isFinite(effectiveMinLM) ? effectiveMinLM : (isFinite(rangeMinLM) ? rangeMinLM : 0)
   );
+  const lastWindowEndLM = effectiveMaxLM + 12 * inputs.durationYears;
   const { year: dataEndYear, month: dataEndMonth } = lmToYM(
     isFinite(effectiveMaxLM) && effectiveMaxLM >= effectiveMinLM
-      ? effectiveMaxLM
+      ? lastWindowEndLM
       : (isFinite(rangeMinLM) ? rangeMinLM : 0)
   );
 

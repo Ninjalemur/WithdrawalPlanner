@@ -65,13 +65,15 @@
     }
   });
 
-  type PortfolioView = 'nominal' | 'real' | 'pct';
+  type PortfolioInflAdj = 'nominal' | 'real';
+  type PortfolioUnit    = 'dollars' | 'pct';
   type WithdrawalView = 'nominal' | 'real';
   type DrawdownView = 'nominal' | 'real';
   type CVView   = 'all' | 'nonzero';
   type SuffView = 'all' | 'nonzero';
 
-  let portfolioView  = $state<PortfolioView>('nominal');
+  let portfolioInflAdj = $state<PortfolioInflAdj>('nominal');
+  let portfolioUnit    = $state<PortfolioUnit>('dollars');
   let withdrawalView     = $state<WithdrawalView>('nominal');
   let withdrawalBandView = $state<WithdrawalView>('nominal');
   let drawdownView   = $state<DrawdownView>('nominal');
@@ -109,14 +111,22 @@
   const fmtSufficiency = (n: number) => n.toFixed(1) + '%';
 
   // ---- derived data ----
-  let portfolioData = $derived(
-    portfolioView === 'nominal' ? results.finalPortfoliosNominal :
-    portfolioView === 'real'    ? results.finalPortfoliosReal :
-    results.finalPortfoliosPctOfInitial.map(v => v * 100)
-  );
+  let portfolioData = $derived.by(() => {
+    if (portfolioUnit === 'dollars') {
+      return portfolioInflAdj === 'nominal' ? results.finalPortfoliosNominal : results.finalPortfoliosReal;
+    } else {
+      if (portfolioInflAdj === 'nominal') {
+        return results.finalPortfoliosPctOfInitial.map(v => v * 100);
+      } else {
+        // real % of initial: real final / initial portfolio × 100
+        const init = results.simulations[0]?.initialPortfolio ?? 1;
+        return results.finalPortfoliosReal.map(v => v / init * 100);
+      }
+    }
+  });
   let portfolioStats = $derived(computeStats(portfolioData));
   let portfolioFmt = $derived(
-    portfolioView === 'pct'
+    portfolioUnit === 'pct'
       ? (n: number) => n.toFixed(1) + '%'
       : fmtDollar
   );
@@ -217,8 +227,8 @@
 
   $effect(() => {
     if (!portfolioChartEl) return;
-    const isMonetary = portfolioView !== 'pct';
-    const fmtLabel = isMonetary
+    const isDollars = portfolioUnit === 'dollars';
+    const fmtLabel = isDollars
       ? (lo: number, hi: number) => `$${Math.round(lo).toLocaleString('en-US')}–$${Math.round(hi).toLocaleString('en-US')}`
       : (lo: number, hi: number) => `${lo.toFixed(0)}%–${hi.toFixed(0)}%`;
     const { mids, labels, counts, size } = preBin(portfolioData.map(r3), fmtLabel);
@@ -235,9 +245,9 @@
       {
         ...makeLayout('% of Simulations'),
         xaxis: {
-          tickprefix: isMonetary ? '$' : '',
-          tickformat: isMonetary ? ',.0f' : '.1f',
-          ticksuffix: portfolioView === 'pct' ? '%' : '',
+          tickprefix: isDollars ? '$' : '',
+          tickformat: isDollars ? ',.0f' : '.1f',
+          ticksuffix: !isDollars ? '%' : '',
         },
       },
       chartConfig,
@@ -515,13 +525,18 @@
   <div class="card">
     <div class="section-header">
       <h2>Final Portfolio Value</h2>
-      <div class="toggle-group">
-        <button class:active={portfolioView === 'nominal'} onclick={() => portfolioView = 'nominal'}>Nominal</button>
-        <button class:active={portfolioView === 'real'}    onclick={() => portfolioView = 'real'}>Real</button>
-        <button class:active={portfolioView === 'pct'}     onclick={() => portfolioView = 'pct'}>% of Initial</button>
+      <div class="toggle-pair">
+        <div class="toggle-group">
+          <button class:active={portfolioInflAdj === 'nominal'} onclick={() => portfolioInflAdj = 'nominal'}>Nominal</button>
+          <button class:active={portfolioInflAdj === 'real'}    onclick={() => portfolioInflAdj = 'real'}>Real</button>
+        </div>
+        <div class="toggle-group">
+          <button class:active={portfolioUnit === 'dollars'} onclick={() => portfolioUnit = 'dollars'}>$</button>
+          <button class:active={portfolioUnit === 'pct'}     onclick={() => portfolioUnit = 'pct'}>% of Initial</button>
+        </div>
       </div>
     </div>
-    {#if portfolioView === 'real'}
+    {#if portfolioInflAdj === 'real'}
       <p class="view-note">Values in start-year dollars (each simulation deflated to its own base year).</p>
     {/if}
     <div class="table-wrap">
@@ -832,6 +847,12 @@
   }
 
   /* ---- toggle ---- */
+  .toggle-pair {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+  }
+
   .toggle-group {
     display: flex;
     border: 1px solid #d1d5db;

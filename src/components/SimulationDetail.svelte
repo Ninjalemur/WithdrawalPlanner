@@ -11,6 +11,9 @@
   let { sim, strategy, onback }: Props = $props();
 
   type MoneyView = 'nominal' | 'real';
+  type PortfolioUnit = 'dollars' | 'pct';
+  let portfolioInflAdj = $state<MoneyView>('nominal');
+  let portfolioUnit    = $state<PortfolioUnit>('dollars');
   let wView  = $state<MoneyView>('nominal');
   let hView  = $state<MoneyView>('nominal');
   let ddView = $state<MoneyView>('nominal');
@@ -118,24 +121,43 @@
 
   $effect(() => {
     if (!portfolioEl) return;
+    const isDollars = portfolioUnit === 'dollars';
+    const isReal    = portfolioInflAdj === 'real';
+    const toValue = (after: number, cumInf: number): number => {
+      const inReal = isReal ? after / cumInf : after;
+      return isDollars ? r3(inReal) : r3(inReal / sim.initialPortfolio * 100);
+    };
+    const initY    = isDollars ? sim.initialPortfolio : 100;
+    const yTitle   = isDollars ? `Portfolio Value (${isReal ? 'Real ' : ''}$)` : `Portfolio (% of Initial)`;
+    const hoverFmt = isDollars ? '%{customdata}<br>$%{y:,.0f}<extra></extra>' : '%{customdata}<br>%{y:.1f}%<extra></extra>';
+    const initHover = isDollars ? `Initial<br>$%{y:,.0f}<extra></extra>` : `Initial<br>%{y:.1f}%<extra></extra>`;
     Plotly.react(
       portfolioEl,
       [
         {
           type: 'scatter', mode: 'markers', name: 'Initial',
-          x: [sim.startYear - 1], y: [sim.initialPortfolio],
+          x: [sim.startYear - 1], y: [initY],
           marker: { color: '#9ca3af', size: 9, symbol: 'diamond' },
-          hovertemplate: 'Initial<br>$%{y:,.0f}<extra></extra>',
+          hovertemplate: initHover,
         },
         {
           type: 'scatter', mode: 'lines+markers', name: 'Portfolio',
-          x: xs, y: sim.years.map(y => r3(y.portfolioAfter)),
+          x: xs, y: sim.years.map(y => toValue(y.portfolioAfter, y.cumulativeInflationFactor)),
           customdata: ym,
           line: { color: '#3b82f6' }, marker: { size: 4 },
-          hovertemplate: '%{customdata}<br>$%{y:,.0f}<extra></extra>',
+          hovertemplate: hoverFmt,
         },
       ],
-      { ...baseLayout('Portfolio Value ($)'), showlegend: false },
+      {
+        ...baseLayout(yTitle),
+        showlegend: false,
+        yaxis: {
+          title: { text: yTitle },
+          tickprefix: isDollars ? '$' : '',
+          tickformat: isDollars ? ',.0f' : '.1f',
+          ticksuffix: !isDollars ? '%' : '',
+        },
+      },
       plotConfig,
     );
   });
@@ -312,7 +334,19 @@
 
   <!-- Portfolio Over Time -->
   <div class="card">
-    <h2>Portfolio Value Over Time</h2>
+    <div class="section-header">
+      <h2>Portfolio Value Over Time</h2>
+      <div class="toggle-pair">
+        <div class="toggle-group">
+          <button class:active={portfolioInflAdj === 'nominal'} onclick={() => portfolioInflAdj = 'nominal'}>Nominal</button>
+          <button class:active={portfolioInflAdj === 'real'}    onclick={() => portfolioInflAdj = 'real'}>Real</button>
+        </div>
+        <div class="toggle-group">
+          <button class:active={portfolioUnit === 'dollars'} onclick={() => portfolioUnit = 'dollars'}>$</button>
+          <button class:active={portfolioUnit === 'pct'}     onclick={() => portfolioUnit = 'pct'}>% of Initial</button>
+        </div>
+      </div>
+    </div>
     <p class="view-note">Diamond = initial value before simulation. Line = end-of-year portfolio after withdrawal.</p>
     <div bind:this={portfolioEl} class="chart"></div>
   </div>
@@ -394,7 +428,7 @@
       <table>
         <thead>
           <tr>
-            <th>Period</th>
+            <th>Period Start</th>
             <th>Portfolio Before</th>
             <th>Desired Expense</th>
             <th>Withdrawn</th>
@@ -548,6 +582,12 @@
   }
 
   /* ---- toggle ---- */
+  .toggle-pair {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+  }
+
   .toggle-group {
     display: flex;
     border: 1px solid #d1d5db;

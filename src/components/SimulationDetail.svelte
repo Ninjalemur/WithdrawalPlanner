@@ -63,6 +63,28 @@
   const fmtPeriod = (year: number, month: number) => `${year} ${MONTHS[month - 1]}`;
   const r3 = (v: number) => Math.round(v * 1000) / 1000;
 
+  function computeStats(values: number[]) {
+    if (values.length === 0)
+      return { min: 0, p5: 0, p25: 0, median: 0, p75: 0, p95: 0, max: 0, mean: 0 };
+    const s = [...values].sort((a, b) => a - b);
+    const p = (pct: number) => {
+      const i = (pct / 100) * (s.length - 1);
+      const lo = Math.floor(i), hi = Math.ceil(i);
+      return s[lo] + (i - lo) * (s[hi] - s[lo]);
+    };
+    return { min: s[0], p5: p(5), p25: p(25), median: p(50),
+             p75: p(75), p95: p(95), max: s[s.length - 1],
+             mean: values.reduce((a, v) => a + v, 0) / values.length };
+  }
+
+  const histStats = $derived.by(() => {
+    const real = hView === 'real';
+    const data = sim.years.map(y =>
+      r3(real ? y.withdrawn / y.cumulativeInflationFactor : y.withdrawn)
+    );
+    return computeStats(data);
+  });
+
   function preBin(
     data: number[],
     fmtLabel: (lo: number, hi: number) => string,
@@ -498,11 +520,30 @@
   <!-- Withdrawal Histogram -->
   <div class="card">
     <div class="section-header">
-      <h2>Withdrawal Distribution</h2>
+      <h2>Withdrawal Amounts</h2>
       <div class="toggle-group">
         <button class:active={hView === 'nominal'} onclick={() => hView = 'nominal'}>Nominal</button>
         <button class:active={hView === 'real'}    onclick={() => hView = 'real'}>Real</button>
       </div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>Min</th><th>P5</th><th>P25</th><th>Median</th><th>P75</th><th>P95</th><th>Max</th><th>Mean</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>{fmtD(histStats.min)}</td>
+            <td>{fmtD(histStats.p5)}</td>
+            <td>{fmtD(histStats.p25)}</td>
+            <td class="em">{fmtD(histStats.median)}</td>
+            <td>{fmtD(histStats.p75)}</td>
+            <td>{fmtD(histStats.p95)}</td>
+            <td>{fmtD(histStats.max)}</td>
+            <td>{fmtD(histStats.mean)}</td>
+          </tr>
+        </tbody>
+      </table>
     </div>
     <div bind:this={histEl} class="chart"></div>
   </div>
@@ -770,6 +811,7 @@
   }
   td:first-child { text-align: left; }
 
+  td.em { font-weight: 700; color: #111827; }
   .depleted-row td { color: #ef4444; }
   .suff-ok { color: #10b981; font-weight: 600; }
   .suff-low { color: #ef4444; }

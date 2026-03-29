@@ -323,15 +323,30 @@
     const { mids, labels, counts, size } = preBin(data, fmtLabel);
     const total = data.length;
     const pcts = counts.map(c => total > 0 ? (c / total) * 100 : 0);
+    const rights  = mids.map(m => m + size / 2);
+    const cumPcts = pcts.reduce<number[]>((acc, p) => { acc.push(parseFloat(((acc.at(-1) ?? 0) + p).toFixed(1))); return acc; }, []);
     Plotly.react(
       histEl,
-      [{
-        type: 'bar', x: mids, y: pcts, width: size * 0.96,
-        customdata: labels.map((lbl, i) => [counts[i], lbl]),
-        marker: { color: '#3b82f6', opacity: 0.85 },
-        hovertemplate: '%{customdata[1]}<br>%{customdata[0]} years (%{y:.1f}%)<extra></extra>',
-      }],
-      { ...baseLayout('% of Years'), xaxis: { tickprefix: '$', tickformat: ',.0f' } },
+      [
+        {
+          type: 'bar', name: 'Years', x: mids, y: pcts, width: size * 0.96,
+          customdata: labels.map((lbl, i) => [counts[i], lbl]),
+          marker: { color: '#3b82f6', opacity: 0.85 },
+          hovertemplate: '%{customdata[1]}<br>%{customdata[0]} years (%{y:.1f}%)<extra></extra>',
+        },
+        {
+          type: 'scatter' as const, mode: 'lines' as const,
+          x: rights, y: cumPcts, yaxis: 'y2',
+          line: { color: '#f59e0b', width: 2 }, name: 'Cumulative',
+          hovertemplate: 'Cumulative: %{y:.1f}%<extra></extra>',
+        },
+      ],
+      {
+        ...baseLayout('% of Years'),
+        margin: { t: 10, r: 60, b: 50, l: 80 },
+        xaxis: { tickprefix: '$', tickformat: ',.0f' },
+        yaxis2: { title: { text: 'Cumulative %' }, overlaying: 'y', side: 'right', range: [0, 100], ticksuffix: '%', showgrid: false },
+      },
       plotConfig,
     );
   });
@@ -366,9 +381,9 @@
     );
   });
 
-  const hasConflict    = sim.years.some(y => y.boundsConflict);
-  const hasFloorCol    = sim.years.some(y => isFinite(y.effectiveFloor));
-  const hasCeilingCol  = sim.years.some(y => isFinite(y.effectiveCeiling));
+  const hasConflict    = $derived(sim.years.some(y => y.boundsConflict));
+  const hasFloorCol    = $derived(sim.years.some(y => isFinite(y.effectiveFloor)));
+  const hasCeilingCol  = $derived(sim.years.some(y => isFinite(y.effectiveCeiling)));
 
   const fmtD = (n: number) => (n < 0 ? '-$' : '$') + Math.round(Math.abs(n)).toLocaleString('en-US');
   const fmtPct = (n: number) => (n * 100).toFixed(1) + '%';

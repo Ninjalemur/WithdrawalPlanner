@@ -234,21 +234,33 @@
     const { mids, labels, counts, size } = preBin(portfolioData.map(r3), fmtLabel);
     const total = portfolioData.length;
     const pcts = counts.map(c => total > 0 ? (c / total) * 100 : 0);
+    const rights  = mids.map(m => m + size / 2);
+    const cumPcts = pcts.reduce<number[]>((acc, p) => { acc.push(parseFloat(((acc.at(-1) ?? 0) + p).toFixed(1))); return acc; }, []);
     Plotly.react(
       portfolioChartEl,
-      [{
-        type: 'bar', x: mids, y: pcts, width: size * 0.96,
-        customdata: labels.map((lbl, i) => [counts[i], lbl]),
-        marker: { color: '#3b82f6', opacity: 0.85 },
-        hovertemplate: '%{customdata[1]}<br>%{customdata[0]} simulations (%{y:.1f}%)<extra></extra>',
-      }],
+      [
+        {
+          type: 'bar', name: 'Simulations', x: mids, y: pcts, width: size * 0.96,
+          customdata: labels.map((lbl, i) => [counts[i], lbl]),
+          marker: { color: '#3b82f6', opacity: 0.85 },
+          hovertemplate: '%{customdata[1]}<br>%{customdata[0]} simulations (%{y:.1f}%)<extra></extra>',
+        },
+        {
+          type: 'scatter' as const, mode: 'lines' as const,
+          x: rights, y: cumPcts, yaxis: 'y2',
+          line: { color: '#f59e0b', width: 2 }, name: 'Cumulative',
+          hovertemplate: 'Cumulative: %{y:.1f}%<extra></extra>',
+        },
+      ],
       {
         ...makeLayout('% of Simulations'),
+        margin: { t: 10, r: 60, b: 50, l: 70 },
         xaxis: {
           tickprefix: isDollars ? '$' : '',
           tickformat: isDollars ? ',.0f' : '.1f',
           ticksuffix: !isDollars ? '%' : '',
         },
+        yaxis2: { title: { text: 'Cumulative %' }, overlaying: 'y', side: 'right', range: [0, 100], ticksuffix: '%', showgrid: false },
       },
       chartConfig,
     );
@@ -261,15 +273,30 @@
     const { mids, labels, counts, size } = preBin(withdrawalData.map(r3), fmtLabel);
     const total = withdrawalData.length;
     const pcts = counts.map(c => total > 0 ? (c / total) * 100 : 0);
+    const rights  = mids.map(m => m + size / 2);
+    const cumPcts = pcts.reduce<number[]>((acc, p) => { acc.push(parseFloat(((acc.at(-1) ?? 0) + p).toFixed(1))); return acc; }, []);
     Plotly.react(
       withdrawalChartEl,
-      [{
-        type: 'bar', x: mids, y: pcts, width: size * 0.96,
-        customdata: labels.map((lbl, i) => [counts[i], lbl]),
-        marker: { color: '#3b82f6', opacity: 0.85 },
-        hovertemplate: '%{customdata[1]}<br>%{customdata[0]} withdrawals (%{y:.1f}%)<extra></extra>',
-      }],
-      { ...makeLayout('% of Withdrawals'), xaxis: { tickprefix: '$', tickformat: ',.0f' } },
+      [
+        {
+          type: 'bar', name: 'Withdrawals', x: mids, y: pcts, width: size * 0.96,
+          customdata: labels.map((lbl, i) => [counts[i], lbl]),
+          marker: { color: '#3b82f6', opacity: 0.85 },
+          hovertemplate: '%{customdata[1]}<br>%{customdata[0]} withdrawals (%{y:.1f}%)<extra></extra>',
+        },
+        {
+          type: 'scatter' as const, mode: 'lines' as const,
+          x: rights, y: cumPcts, yaxis: 'y2',
+          line: { color: '#f59e0b', width: 2 }, name: 'Cumulative',
+          hovertemplate: 'Cumulative: %{y:.1f}%<extra></extra>',
+        },
+      ],
+      {
+        ...makeLayout('% of Withdrawals'),
+        margin: { t: 10, r: 60, b: 50, l: 70 },
+        xaxis: { tickprefix: '$', tickformat: ',.0f' },
+        yaxis2: { title: { text: 'Cumulative %' }, overlaying: 'y', side: 'right', range: [0, 100], ticksuffix: '%', showgrid: false },
+      },
       chartConfig,
     );
   });
@@ -321,15 +348,30 @@
     const { mids, labels, counts, size } = preBin(cvData.map(r3), fmtLabel);
     const total = cvData.length;
     const pcts = counts.map(c => total > 0 ? (c / total) * 100 : 0);
+    const rights  = mids.map(m => m + size / 2);
+    const cumPcts = pcts.reduce<number[]>((acc, p) => { acc.push(parseFloat(((acc.at(-1) ?? 0) + p).toFixed(1))); return acc; }, []);
     Plotly.react(
       cvChartEl,
-      [{
-        type: 'bar', x: mids, y: pcts, width: size * 0.96,
-        customdata: labels.map((lbl, i) => [counts[i], lbl]),
-        marker: { color: '#3b82f6', opacity: 0.85 },
-        hovertemplate: '%{customdata[1]}<br>%{customdata[0]} simulations (%{y:.1f}%)<extra></extra>',
-      }],
-      { ...makeLayout('% of Simulations'), xaxis: { tickformat: '.0f', ticksuffix: '%' } },
+      [
+        {
+          type: 'bar', name: 'Simulations', x: mids, y: pcts, width: size * 0.96,
+          customdata: labels.map((lbl, i) => [counts[i], lbl]),
+          marker: { color: '#3b82f6', opacity: 0.85 },
+          hovertemplate: '%{customdata[1]}<br>%{customdata[0]} simulations (%{y:.1f}%)<extra></extra>',
+        },
+        {
+          type: 'scatter' as const, mode: 'lines' as const,
+          x: rights, y: cumPcts, yaxis: 'y2',
+          line: { color: '#f59e0b', width: 2 }, name: 'Cumulative',
+          hovertemplate: 'Cumulative: %{y:.1f}%<extra></extra>',
+        },
+      ],
+      {
+        ...makeLayout('% of Simulations'),
+        margin: { t: 10, r: 60, b: 50, l: 70 },
+        xaxis: { tickformat: '.0f', ticksuffix: '%' },
+        yaxis2: { title: { text: 'Cumulative %' }, overlaying: 'y', side: 'right', range: [0, 100], ticksuffix: '%', showgrid: false },
+      },
       chartConfig,
     );
   });
@@ -340,15 +382,30 @@
     const { mids, labels, counts, size } = preBin(suffData.map(r3), fmtLabel);
     const total = suffData.length;
     const pcts = counts.map(c => total > 0 ? (c / total) * 100 : 0);
+    const rights  = mids.map(m => m + size / 2);
+    const cumPcts = pcts.reduce<number[]>((acc, p) => { acc.push(parseFloat(((acc.at(-1) ?? 0) + p).toFixed(1))); return acc; }, []);
     Plotly.react(
       suffChartEl,
-      [{
-        type: 'bar', x: mids, y: pcts, width: size * 0.96,
-        customdata: labels.map((lbl, i) => [counts[i], lbl]),
-        marker: { color: '#3b82f6', opacity: 0.85 },
-        hovertemplate: '%{customdata[1]}<br>%{customdata[0]} years (%{y:.1f}%)<extra></extra>',
-      }],
-      { ...makeLayout('% of Years'), xaxis: { tickformat: '.0f', ticksuffix: '%' } },
+      [
+        {
+          type: 'bar', name: 'Years', x: mids, y: pcts, width: size * 0.96,
+          customdata: labels.map((lbl, i) => [counts[i], lbl]),
+          marker: { color: '#3b82f6', opacity: 0.85 },
+          hovertemplate: '%{customdata[1]}<br>%{customdata[0]} years (%{y:.1f}%)<extra></extra>',
+        },
+        {
+          type: 'scatter' as const, mode: 'lines' as const,
+          x: rights, y: cumPcts, yaxis: 'y2',
+          line: { color: '#f59e0b', width: 2 }, name: 'Cumulative',
+          hovertemplate: 'Cumulative: %{y:.1f}%<extra></extra>',
+        },
+      ],
+      {
+        ...makeLayout('% of Years'),
+        margin: { t: 10, r: 60, b: 50, l: 70 },
+        xaxis: { tickformat: '.0f', ticksuffix: '%' },
+        yaxis2: { title: { text: 'Cumulative %' }, overlaying: 'y', side: 'right', range: [0, 100], ticksuffix: '%', showgrid: false },
+      },
       chartConfig,
     );
   });
@@ -478,20 +535,33 @@
       `${i * BIN_SIZE}%–${(i + 1) * BIN_SIZE}%`
     );
     const pcts = counts.map(c => total > 0 ? (c / total) * 100 : 0);
+    const rights  = binMids.map(m => m + BIN_SIZE / 2);
+    const cumPcts = pcts.reduce<number[]>((acc, p) => { acc.push(parseFloat(((acc.at(-1) ?? 0) + p).toFixed(1))); return acc; }, []);
     Plotly.react(
       drawdownChartEl,
-      [{
-        type: 'bar',
-        x: binMids,
-        y: pcts,
-        width: BIN_SIZE * 0.96,
-        customdata: counts.map((c, i) => [c, binLabels[i]]),
-        marker: { color: '#3b82f6', opacity: 0.85 },
-        hovertemplate: '%{customdata[1]}<br>%{customdata[0]} simulations (%{y:.1f}%)<extra></extra>',
-      }],
+      [
+        {
+          type: 'bar',
+          name: 'Simulations',
+          x: binMids,
+          y: pcts,
+          width: BIN_SIZE * 0.96,
+          customdata: counts.map((c, i) => [c, binLabels[i]]),
+          marker: { color: '#3b82f6', opacity: 0.85 },
+          hovertemplate: '%{customdata[1]}<br>%{customdata[0]} simulations (%{y:.1f}%)<extra></extra>',
+        },
+        {
+          type: 'scatter' as const, mode: 'lines' as const,
+          x: rights, y: cumPcts, yaxis: 'y2',
+          line: { color: '#f59e0b', width: 2 }, name: 'Cumulative',
+          hovertemplate: 'Cumulative: %{y:.1f}%<extra></extra>',
+        },
+      ],
       {
         ...makeLayout('% of Simulations'),
+        margin: { t: 10, r: 60, b: 50, l: 70 },
         xaxis: { tickformat: '.0f', ticksuffix: '%', dtick: 10 },
+        yaxis2: { title: { text: 'Cumulative %' }, overlaying: 'y', side: 'right', range: [0, 100], ticksuffix: '%', showgrid: false },
       },
       chartConfig,
     );

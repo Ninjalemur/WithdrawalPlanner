@@ -30,9 +30,10 @@
 
   // ---- state ----
   let assets = $state<Asset[]>([
-    { id: 'sp500', label: 'S&P 500',   enabled: true, pct: 60 },
-    { id: 'tbond', label: 'US T-Bond (10Y)', enabled: true, pct: 30 },
-    { id: 'gold',  label: 'Gold',      enabled: true, pct: 10 },
+    { id: 'sp500',     label: 'S&P 500',                enabled: true,  pct: 60 },
+    { id: 'tbond',     label: 'US T-Bond 10Y',          enabled: true,  pct: 30 },
+    { id: 'gold',      label: 'Gold',                   enabled: true,  pct: 10 },
+    { id: 'msciWorld', label: 'World Equity (Developed)', enabled: false, pct:  0 },
   ]);
 
   let portfolioValueStr  = $state('1,000,000');
@@ -99,10 +100,27 @@
 
   // Final allocation (glidepath mode)
   let finalAssets = $state<Asset[]>([
-    { id: 'sp500', label: 'S&P 500',   enabled: true, pct: 80 },
-    { id: 'tbond', label: 'US T-Bond (10Y)', enabled: true, pct: 10 },
-    { id: 'gold',  label: 'Gold',      enabled: true, pct: 10 },
+    { id: 'sp500',     label: 'S&P 500',                enabled: true,  pct: 80 },
+    { id: 'tbond',     label: 'US T-Bond 10Y',          enabled: true,  pct: 10 },
+    { id: 'gold',      label: 'Gold',                   enabled: true,  pct: 10 },
+    { id: 'msciWorld', label: 'World Equity (Developed)', enabled: false, pct:  0 },
   ]);
+
+  // ---- asset data ranges ----
+  // First year of annual return data for each asset (12-month window starting that year)
+  const ASSET_DATA_START: Record<string, number> = {
+    sp500:     1871,
+    tbond:     1871,
+    gold:      1833,
+    msciWorld: 1970,
+  };
+  // Last year a 12-month window ends (data through Mar 2026 → last complete window starts 2025)
+  const ASSET_DATA_END: Record<string, number> = {
+    sp500:     2024,
+    tbond:     2024,
+    gold:      2025,
+    msciWorld: 2025,
+  };
 
   // ---- derived validation ----
   let enabledCount  = $derived(assets.filter(a => a.enabled).length);
@@ -114,6 +132,26 @@
       ? withdrawalAmountNum
       : portfolioValue * constPct / 100
   );
+
+  // Max duration = (earliest data end) - (latest data start among enabled assets)
+  // The limiting asset is the one with the latest start year
+  const maxDuration = $derived.by(() => {
+    const enabled = assets.filter(a => a.enabled);
+    if (enabled.length === 0) return 60;
+    const latestStart = Math.max(...enabled.map(a => ASSET_DATA_START[a.id] ?? 1871));
+    const earliestEnd = Math.min(...enabled.map(a => ASSET_DATA_END[a.id] ?? 2024));
+    return Math.max(1, earliestEnd - latestStart);
+  });
+
+  const durationLimitingAsset = $derived.by(() => {
+    const enabled = assets.filter(a => a.enabled);
+    if (enabled.length === 0) return null;
+    const latestStart = Math.max(...enabled.map(a => ASSET_DATA_START[a.id] ?? 1871));
+    if (latestStart <= 1871) return null; // only short-history assets trigger the warning
+    return enabled.find(a => (ASSET_DATA_START[a.id] ?? 1871) === latestStart) ?? null;
+  });
+
+  const durationTooLong = $derived(durationYears > maxDuration);
 
   let yearFilterInvalid = $derived(
     startYearMin !== null && startYearMax !== null &&
@@ -158,6 +196,7 @@
     enabledCount >= 1 &&
     portfolioValue > 0 &&
     durationYears >= 1 &&
+    !durationTooLong &&
     !withdrawalInvalid &&
     !boundsHardConflict &&
     !yearFilterInvalid &&
@@ -698,6 +737,9 @@
         <span class="adorn-right">yrs</span>
       </div>
     </label>
+    {#if durationTooLong && durationLimitingAsset}
+      <p class="error-msg">{durationLimitingAsset.label.split(' (')[0]} data starts {ASSET_DATA_START[durationLimitingAsset.id]} — max duration is {maxDuration} years</p>
+    {/if}
   </section>
 
   <section class="card">

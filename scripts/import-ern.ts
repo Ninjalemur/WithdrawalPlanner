@@ -16,7 +16,6 @@ import { readFileSync, writeFileSync } from 'fs';
 const CSV_PATH  = 'g:/Downloads/ERN_assets.csv';
 const OUT_SP500 = 'src/data/raw/returns/sp500.ts';
 const OUT_TBOND = 'src/data/raw/returns/tbond.ts';
-const OUT_GOLD  = 'src/data/raw/returns/gold.ts';
 const OUT_CAPE  = 'src/data/raw/indicators/cape.ts';
 
 // ---------------------------------------------------------------------------
@@ -67,14 +66,12 @@ interface Point { year: number; month: number; value: number }
 
 const spxPoints:   Point[] = [];
 const tbondPoints: Point[] = [];
-const goldPoints:  Point[] = [];
 
 for (let i = 0; i < rows.length - 1; i++) {
   const cur  = rows[i];
   const next = rows[i + 1];
   spxPoints  .push({ year: cur.year, month: cur.month, value: (next.spx   - cur.spx)   / cur.spx   });
   tbondPoints.push({ year: cur.year, month: cur.month, value: (next.tbond - cur.tbond) / cur.tbond });
-  goldPoints .push({ year: cur.year, month: cur.month, value: (next.gold  - cur.gold)  / cur.gold  });
 }
 
 // CAPE is a direct value per month (not a return — no differencing needed)
@@ -156,32 +153,6 @@ ${toEntries(tbondPoints)}
 };
 `, 'utf8');
 console.log(`Written: ${OUT_TBOND}`);
-
-// --- Gold ---
-writeFileSync(OUT_GOLD, `import type { MonthlyDataSeries } from '../../types';
-
-// Monthly total returns for Gold.
-// Values are decimals: 0.02 = +2.0%.
-//
-// Source: Early Retirement Now – SWR Toolbox spreadsheet (Karsten Jeske)
-//   https://earlyretirementnow.com/2017/01/25/the-ultimate-guide-to-safe-withdrawal-rates-part-7-toolbox/
-// Underlying data: London Fixing (1968+), OnlyGold.com (1871–1967)
-// Retrieved: 2026-03-08
-// Derived: monthly return = (index[t+1] - index[t]) / index[t]
-${coverageComment(goldPoints)}
-export const gold: MonthlyDataSeries = {
-  id: 'gold',
-  label: 'Gold',
-  category: 'returns',
-  source: 'Early Retirement Now (Karsten Jeske) / London Fixing, OnlyGold.com',
-  sourceUrl: 'https://earlyretirementnow.com/2017/01/25/the-ultimate-guide-to-safe-withdrawal-rates-part-7-toolbox/',
-  retrievedDate: '2026-03-08',
-  values: [
-${toEntries(goldPoints)}
-  ],
-};
-`, 'utf8');
-console.log(`Written: ${OUT_GOLD}`);
 
 // --- CAPE ---
 writeFileSync(OUT_CAPE, `import type { MonthlyDataSeries } from '../../types';

@@ -134,14 +134,16 @@
 
   // Allocation chart — only rendered for glidepath simulations
   const ALLOC_COLORS: Record<string, string> = {
-    sp500: '#3b82f6',
-    tbond: '#f59e0b',
-    gold:  '#10b981',
+    sp500:     '#3b82f6',
+    tbond:     '#f59e0b',
+    gold:      '#10b981',
+    msciWorld: '#8b5cf6',
   };
   const ALLOC_LABELS: Record<string, string> = {
-    sp500: 'S&P 500',
-    tbond: 'US T-Bond (10Y)',
-    gold:  'Gold',
+    sp500:     'S&P 500',
+    tbond:     'US T-Bond (10Y)',
+    gold:      'Gold',
+    msciWorld: 'World Equity (Developed)',
   };
 
   const assetIds = sim.allocationMode === 'glidepath' && sim.years.length > 0

@@ -18,6 +18,7 @@
 import { sp500 }             from '../src/data/raw/returns/sp500';
 import { tbond }             from '../src/data/raw/returns/tbond';
 import { gold }              from '../src/data/raw/returns/gold';
+import { msciWorld }         from '../src/data/raw/returns/msciWorld';
 import { usInflation }       from '../src/data/raw/inflation/us';
 import { singaporeInflation } from '../src/data/raw/inflation/singapore';
 import { cape }              from '../src/data/raw/indicators/cape';
@@ -162,6 +163,16 @@ writeReturnFile(
   'src/data/compiled/returns/gold.ts',
   'goldAnnualReturns',
   goldAnnual,
+  'Each key is YYYYMM; value is compound annual return for the 12-month window starting that month.',
+);
+
+// MSCI world equity returns
+const msciWorldAnnual = compileAnnualReturns(msciWorld.values);
+
+writeReturnFile(
+  'src/data/compiled/returns/msciWorld.ts',
+  'msciWorldAnnualReturns',
+  msciWorldAnnual,
   'Each key is YYYYMM; value is compound annual return for the 12-month window starting that month.',
 );
 

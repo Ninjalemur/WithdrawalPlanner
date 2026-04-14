@@ -1,7 +1,8 @@
 import type { SimulationInputs } from '../lib/types';
-import { sp500AnnualReturns } from '../data/compiled/returns/sp500';
-import { tbondAnnualReturns } from '../data/compiled/returns/tbond';
-import { goldAnnualReturns  } from '../data/compiled/returns/gold';
+import { sp500AnnualReturns        } from '../data/compiled/returns/sp500';
+import { tbondAnnualReturns        } from '../data/compiled/returns/tbond';
+import { goldAnnualReturns         } from '../data/compiled/returns/gold';
+import { msciWorldAnnualReturns    } from '../data/compiled/returns/msciWorld';
 import { usInflationMap        } from '../data/compiled/inflation/us';
 import { singaporeInflationMap } from '../data/compiled/inflation/singapore';
 import { sp500PriceIndex, sp500RunningATH } from '../data/compiled/sp500Index';
@@ -18,9 +19,10 @@ import type {
 // ---------------------------------------------------------------------------
 
 const ANNUAL_RETURNS: Record<string, Map<number, number>> = {
-  sp500: sp500AnnualReturns,
-  tbond: tbondAnnualReturns,
-  gold:  goldAnnualReturns,
+  sp500:     sp500AnnualReturns,
+  tbond:     tbondAnnualReturns,
+  gold:      goldAnnualReturns,
+  msciWorld: msciWorldAnnualReturns,
 };
 
 const INFLATION_MAPS: Record<string, Map<number, number>> = {

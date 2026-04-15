@@ -36,28 +36,28 @@
     });
   }
 
-  const nominalDrawdowns = runningDrawdown(sim.years.map(y => y.withdrawn));
-  const realDrawdowns    = runningDrawdown(sim.years.map(y => y.withdrawn / y.cumulativeInflationFactor));
+  const nominalDrawdowns = $derived(runningDrawdown(sim.years.map(y => y.withdrawn)));
+  const realDrawdowns    = $derived(runningDrawdown(sim.years.map(y => y.withdrawn / y.cumulativeInflationFactor)));
 
   // Withdrawal rate: withdrawn / portfolioBeforeWithdrawal (0 if portfolio was zero)
-  const withdrawalRates = sim.years.map(y =>
+  const withdrawalRates = $derived(sim.years.map(y =>
     y.portfolioBeforeWithdrawal > 0 ? (y.withdrawn / y.portfolioBeforeWithdrawal) * 100 : 0
-  );
+  ));
 
   // CAPE lookup per year (CAPE strategy only)
-  const capePerYear = sim.years.map(y => capeValues.get(y.calendarYear * 100 + y.calendarMonth) ?? null);
+  const capePerYear = $derived(sim.years.map(y => capeValues.get(y.calendarYear * 100 + y.calendarMonth) ?? null));
 
   // Annual inflation rate from consecutive cumulativeInflationFactor values
   // cumulativeInflationFactor[i] = product(1+inf[year0..year(i-1)]), so
   // forward ratio gives the rate that applied during calYear[i]
-  const inflationRates = sim.years.map((y, i) => {
+  const inflationRates = $derived(sim.years.map((y, i) => {
     if (i < sim.years.length - 1) {
       return (sim.years[i + 1].cumulativeInflationFactor / y.cumulativeInflationFactor - 1) * 100;
     } else if (i > 0) {
       return (y.cumulativeInflationFactor / sim.years[i - 1].cumulativeInflationFactor - 1) * 100;
     }
     return 0;
-  });
+  }));
 
   const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   const fmtPeriod = (year: number, month: number) => `${year} ${MONTHS[month - 1]}`;
@@ -117,8 +117,8 @@
   }
 
   const plotConfig = { responsive: true, displayModeBar: false };
-  const xs = sim.years.map(y => y.calendarYear);
-  const ym = sim.years.map(y => `${y.calendarYear}-${String(y.calendarMonth).padStart(2, '0')}`);
+  const xs = $derived(sim.years.map(y => y.calendarYear));
+  const ym = $derived(sim.years.map(y => `${y.calendarYear}-${String(y.calendarMonth).padStart(2, '0')}`));
 
   function baseLayout(yTitle: string, marginTop = 10) {
     return {
@@ -146,9 +146,9 @@
     msciWorld: 'World Equity (Developed)',
   };
 
-  const assetIds = sim.allocationMode === 'glidepath' && sim.years.length > 0
+  const assetIds = $derived(sim.allocationMode === 'glidepath' && sim.years.length > 0
     ? sim.years[0].allocations.map(a => a.id)
-    : [];
+    : []);
 
   $effect(() => {
     if (!allocEl || sim.allocationMode !== 'glidepath') return;

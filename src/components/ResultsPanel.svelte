@@ -161,6 +161,35 @@
     '#ef4444'
   );
 
+  // ---- callout thresholds ----
+  let largeFinalThreshold = $state(300);
+  let smallFinalThreshold = $state(50);
+
+  let showCustomiseLarge = $state(false);
+  let showCustomiseSmall = $state(false);
+  let customiseTempLarge = $state(300);
+  let customiseTempSmall = $state(50);
+
+  let showInfoCard = $state<1 | 2 | 3 | 4 | null>(null);
+
+  const largeFinalPct = $derived.by(() => {
+    if (results.simulationCount === 0) return 0;
+    const init = results.simulations[0]?.initialPortfolio ?? 1;
+    const realRatios = results.finalPortfoliosReal.map(v => v / init);
+    return realRatios.filter(v => v >= largeFinalThreshold / 100).length / results.simulationCount * 100;
+  });
+  const smallFinalPct = $derived.by(() => {
+    if (results.simulationCount === 0) return 0;
+    const init = results.simulations[0]?.initialPortfolio ?? 1;
+    const realRatios = results.finalPortfoliosReal.map(v => v / init);
+    return realRatios.filter(v => v < smallFinalThreshold / 100).length / results.simulationCount * 100;
+  });
+  const maxRealDrawdownPct = $derived(
+    results.maxDrawdownsReal.length > 0
+      ? Math.max(...results.maxDrawdownsReal) * 100
+      : 0
+  );
+
   // ---- Plotly chart refs ----
   let portfolioChartEl:  HTMLDivElement | undefined = $state();
   let withdrawalChartEl:     HTMLDivElement | undefined = $state();
@@ -597,6 +626,161 @@
     {/if}
   </div>
 
+  <!-- Callout Cards -->
+  <div class="callouts-row">
+
+    <!-- 1: Success Rate -->
+    <div class="callout-card">
+      <div class="callout-top">
+        <span class="callout-stat">
+          <span class="status-dot"
+            class:status-dot--good={results.successRate >= 0.95}
+            class:status-dot--caution={results.successRate >= 0.80 && results.successRate < 0.95}
+            class:status-dot--severe={results.successRate < 0.80}>●</span>{(results.successRate * 100).toFixed(1)}%</span>
+        <button class="callout-info-btn" onclick={() => showInfoCard = 1}>?</button>
+      </div>
+      <p class="callout-label">Success Rate</p>
+      <p class="callout-desc">{(results.successRate * 100).toFixed(1)}% of simulations ended with portfolio intact</p>
+    </div>
+
+    <!-- 2: Large Final Portfolio -->
+    <div class="callout-card">
+      <div class="callout-top">
+        <span class="callout-stat">
+          <span class="status-dot status-dot--good">●</span>{largeFinalPct.toFixed(1)}%</span>
+        <button class="callout-info-btn" onclick={() => showInfoCard = 2}>?</button>
+      </div>
+      <p class="callout-label">Large Final Portfolio</p>
+      <p class="callout-desc">{largeFinalPct.toFixed(1)}% of simulations ended with at least {largeFinalThreshold}% real value of initial portfolio</p>
+      <button class="callout-customise-btn" onclick={() => { customiseTempLarge = largeFinalThreshold; showCustomiseLarge = true; }}>Customise</button>
+    </div>
+
+    <!-- 3: Small Final Portfolio -->
+    <div class="callout-card">
+      <div class="callout-top">
+        <span class="callout-stat">
+          <span class="status-dot"
+            class:status-dot--severe={smallFinalPct >= 25}
+            class:status-dot--caution={smallFinalPct >= 10 && smallFinalPct < 25}
+            class:status-dot--good={smallFinalPct < 10}>●</span>{smallFinalPct.toFixed(1)}%</span>
+        <button class="callout-info-btn" onclick={() => showInfoCard = 3}>?</button>
+      </div>
+      <p class="callout-label">Small Final Portfolio</p>
+      <p class="callout-desc">{smallFinalPct.toFixed(1)}% of simulations ended with less than {smallFinalThreshold}% real value of initial portfolio</p>
+      <button class="callout-customise-btn" onclick={() => { customiseTempSmall = smallFinalThreshold; showCustomiseSmall = true; }}>Customise</button>
+    </div>
+
+    <!-- 4: Max Real Drawdown -->
+    <div class="callout-card">
+      <div class="callout-top">
+        <span class="callout-stat">
+          <span class="status-dot"
+            class:status-dot--severe={maxRealDrawdownPct >= 50}
+            class:status-dot--caution={maxRealDrawdownPct >= 25 && maxRealDrawdownPct < 50}
+            class:status-dot--good={maxRealDrawdownPct < 25}>●</span>{maxRealDrawdownPct.toFixed(1)}%</span>
+        <button class="callout-info-btn" onclick={() => showInfoCard = 4}>?</button>
+      </div>
+      <p class="callout-label">Max Real Drawdown</p>
+      <p class="callout-desc">The worst drawdown encountered was {maxRealDrawdownPct.toFixed(1)}% — the largest decline from a running peak in real withdrawals across all simulations</p>
+    </div>
+
+  </div>
+
+  <!-- Customise popup: Large Final -->
+  {#if showCustomiseLarge}
+    <div class="overlay-backdrop" onclick={() => showCustomiseLarge = false} role="presentation"></div>
+    <div class="overlay-box customise-popup">
+      <button class="overlay-close" onclick={() => showCustomiseLarge = false}>✕</button>
+      <div class="overlay-content">
+        <p class="overlay-title">Customise threshold</p>
+        <p class="customise-hint">Simulations where the final portfolio is at least X% of the starting value.</p>
+        <div class="customise-input-row">
+          <input type="number" min="0" max="10000" bind:value={customiseTempLarge} class="customise-input" />
+          <span class="customise-unit">%</span>
+        </div>
+        <div class="customise-actions">
+          <button class="btn-primary" onclick={() => { largeFinalThreshold = customiseTempLarge; showCustomiseLarge = false; }}>OK</button>
+          <button class="btn-secondary" onclick={() => showCustomiseLarge = false}>Cancel</button>
+        </div>
+      </div>
+    </div>
+  {/if}
+
+  <!-- Customise popup: Small Final -->
+  {#if showCustomiseSmall}
+    <div class="overlay-backdrop" onclick={() => showCustomiseSmall = false} role="presentation"></div>
+    <div class="overlay-box customise-popup">
+      <button class="overlay-close" onclick={() => showCustomiseSmall = false}>✕</button>
+      <div class="overlay-content">
+        <p class="overlay-title">Customise threshold</p>
+        <p class="customise-hint">Simulations where the final portfolio is less than X% of the starting value.</p>
+        <div class="customise-input-row">
+          <input type="number" min="0" max="10000" bind:value={customiseTempSmall} class="customise-input" />
+          <span class="customise-unit">%</span>
+        </div>
+        <div class="customise-actions">
+          <button class="btn-primary" onclick={() => { smallFinalThreshold = customiseTempSmall; showCustomiseSmall = false; }}>OK</button>
+          <button class="btn-secondary" onclick={() => showCustomiseSmall = false}>Cancel</button>
+        </div>
+      </div>
+    </div>
+  {/if}
+
+  <!-- ? Info modal -->
+  {#if showInfoCard !== null}
+    <div class="overlay-backdrop" onclick={() => showInfoCard = null} role="presentation"></div>
+    <div class="overlay-box">
+      <button class="overlay-close" onclick={() => showInfoCard = null}>✕</button>
+      <div class="overlay-content">
+        {#if showInfoCard === 1}
+          <p class="overlay-title">Success Rate</p>
+          <p class="info-what">A simulation succeeds if the portfolio never depletes to $0 during the full withdrawal period. A higher rate means more historical starting points survived your plan intact.</p>
+          <p class="info-rec-label">Recommendation</p>
+          {#if results.successRate >= 0.95}
+            <p class="info-rec">Your plan succeeds in the large majority of historical scenarios.</p>
+          {:else if results.successRate >= 0.80}
+            <p class="info-rec">A meaningful share of historical scenarios end in depletion. Consider reducing annual withdrawals, adding a cash buffer for early retirement years, or using a dynamic strategy that trims spending in poor market conditions.</p>
+          {:else}
+            <p class="info-rec">More than 1 in 5 historical scenarios end in portfolio depletion. Strongly consider reducing annual withdrawals, extending your starting portfolio, shortening your retirement horizon, or switching to a dynamic withdrawal strategy.</p>
+          {/if}
+        {:else if showInfoCard === 2}
+          <p class="overlay-title">Large Final Portfolio</p>
+          <p class="info-what">Percentage of simulations where the final portfolio was at least {largeFinalThreshold}% of the starting value (in real terms).</p>
+          <p class="info-rec-label">Recommendation</p>
+          {#if largeFinalPct >= 50}
+            <p class="info-rec">Most scenarios leave a substantial estate. If maximising income is a priority, you could increase spending, reduce your starting portfolio size, lengthen retirement, shift to a more defensive allocation, or add a spending floor to structure distributions.</p>
+          {:else if largeFinalPct >= 25}
+            <p class="info-rec">A solid share of scenarios preserve significant wealth, giving your plan meaningful legacy potential.</p>
+          {:else}
+            <p class="info-rec">Few simulations leave a large estate — your withdrawals are consuming most of the portfolio over time, which may be entirely intentional.</p>
+          {/if}
+        {:else if showInfoCard === 3}
+          <p class="overlay-title">Small Final Portfolio</p>
+          <p class="info-what">Percentage of simulations where the final portfolio fell below {smallFinalThreshold}% of the starting value (in real terms). Includes portfolios that depleted entirely.</p>
+          <p class="info-rec-label">Recommendation</p>
+          {#if smallFinalPct < 10}
+            <p class="info-rec">Few simulations end with a small portfolio — your plan preserves capital well across most historical conditions.</p>
+          {:else if smallFinalPct < 25}
+            <p class="info-rec">A meaningful share of scenarios end with a small portfolio. Whether this is acceptable depends on spending flexibility and whether you have other income sources later in retirement. Consider reducing annual withdrawals, extending your starting portfolio, shortening your retirement horizon, or shifting to a more growth-oriented allocation.</p>
+          {:else}
+            <p class="info-rec">Most scenarios end with nearly nothing left. Strongly consider reducing annual withdrawals, extending your starting portfolio, shortening your retirement horizon, or shifting to a more growth-oriented allocation.</p>
+          {/if}
+        {:else if showInfoCard === 4}
+          <p class="overlay-title">Worst Real Drawdown</p>
+          <p class="info-what">The largest peak-to-trough fall in real (inflation-adjusted) annual withdrawals, across all simulations. A {maxRealDrawdownPct.toFixed(0)}% drawdown means spending dropped from a peak by that fraction in the worst historical scenario.</p>
+          <p class="info-rec-label">Recommendation</p>
+          {#if maxRealDrawdownPct >= 50}
+            <p class="info-rec">The worst scenario involves a severe cut in real spending. Strongly consider increasing bond/gold allocation, adding a withdrawal floor constraint to protect minimum spending, or using a glidepath.</p>
+          {:else if maxRealDrawdownPct >= 25}
+            <p class="info-rec">The worst scenario involves a significant cut in real spending. Consider a higher bond/gold allocation to dampen volatility, or a glidepath that becomes more defensive over time.</p>
+          {:else}
+            <p class="info-rec">Drawdown is well contained. Even in the worst historical scenario, real spending remains relatively stable.</p>
+          {/if}
+        {/if}
+      </div>
+    </div>
+  {/if}
+
   <!-- Final Portfolio Value -->
   <div class="card">
     <div class="section-header">
@@ -1002,6 +1186,202 @@
   /* ---- chart ---- */
   .chart { width: 100%; min-height: 300px; }
 
+  /* ---- callout cards ---- */
+  .callouts-row {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 0.75rem;
+    margin-bottom: 0.75rem;
+  }
+  .callout-card {
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    padding: 0.9rem 1rem;
+    display: flex;
+    flex-direction: column;
+  }
+  .callout-top {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 0.4rem;
+  }
+  .callout-stat {
+    font-size: 1.6rem;
+    font-weight: 700;
+    color: #111827;
+    line-height: 1.1;
+  }
+  .callout-info-btn {
+    flex-shrink: 0;
+    width: 1.3rem;
+    height: 1.3rem;
+    border-radius: 50%;
+    border: 1px solid #d1d5db;
+    background: #f9fafb;
+    color: #6b7280;
+    font-size: 0.7rem;
+    font-weight: 600;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-top: 0.15rem;
+  }
+  .callout-info-btn:hover { background: #e5e7eb; color: #374151; }
+  .callout-label {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: #374151;
+    margin: 0.35rem 0 0.2rem;
+  }
+  .callout-desc {
+    font-size: 0.75rem;
+    color: #6b7280;
+    line-height: 1.4;
+    margin: 0;
+    flex: 1;
+  }
+  .callout-customise-btn {
+    margin-top: 0.6rem;
+    align-self: flex-start;
+    font-size: 0.75rem;
+    padding: 0.2rem 0.6rem;
+    border: 1px solid #d1d5db;
+    border-radius: 4px;
+    background: #f9fafb;
+    color: #374151;
+    cursor: pointer;
+  }
+  .callout-customise-btn:hover { background: #e5e7eb; }
+
+  /* ---- overlay (callout modals) ---- */
+  .overlay-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.4);
+    z-index: 100;
+  }
+  .overlay-box {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: min(560px, 92vw);
+    max-height: 80vh;
+    background: #fff;
+    border-radius: 8px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+    z-index: 101;
+    display: flex;
+    flex-direction: column;
+  }
+  .overlay-close {
+    position: sticky;
+    top: 0;
+    align-self: flex-end;
+    margin: 0.75rem 0.75rem 0 0;
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: 1.1rem;
+    color: #6b7280;
+    z-index: 1;
+    flex-shrink: 0;
+  }
+  .overlay-close:hover { color: #111; }
+  .overlay-content {
+    overflow-y: auto;
+    padding: 0 1.25rem 1.25rem;
+  }
+  .overlay-title {
+    font-size: 1rem;
+    font-weight: 600;
+    color: #111827;
+    margin: 0 0 0.75rem;
+  }
+  .overlay-content p:not(.overlay-title):not(.info-rec-label) {
+    font-size: 0.85rem;
+    color: #374151;
+    line-height: 1.55;
+    margin: 0;
+  }
+  .info-what { margin-bottom: 1rem !important; }
+  .info-rec-label {
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: #9ca3af;
+    margin: 0 0 0.35rem !important;
+  }
+  .info-rec {
+    background: #f9fafb;
+    border-left: 3px solid #d1d5db;
+    padding: 0.5rem 0.75rem;
+    border-radius: 0 4px 4px 0;
+  }
+
+  /* ---- status dots on callout cards ---- */
+  .status-dot {
+    font-size: 1em;
+    margin-right: 0.2rem;
+    vertical-align: baseline;
+  }
+  .status-dot--neutral { color: #9ca3af; }
+  .status-dot--good    { color: #16a34a; }
+  .status-dot--caution { color: #b45309; }
+  .status-dot--severe  { color: #dc2626; }
+
+  /* ---- customise popup ---- */
+  .customise-popup { width: min(320px, 92vw); }
+  .customise-hint {
+    font-size: 0.82rem;
+    color: #6b7280;
+    margin: 0 0 0.75rem;
+    line-height: 1.4;
+  }
+  .customise-input-row {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    margin-bottom: 1rem;
+  }
+  .customise-input {
+    width: 90px;
+    padding: 0.35rem 0.5rem;
+    border: 1px solid #d1d5db;
+    border-radius: 4px;
+    font-size: 0.9rem;
+  }
+  .customise-unit { font-size: 0.9rem; color: #374151; }
+  .customise-actions { display: flex; gap: 0.5rem; }
+  .btn-primary {
+    padding: 0.35rem 1rem;
+    background: #3b82f6;
+    color: #fff;
+    border: none;
+    border-radius: 4px;
+    font-size: 0.85rem;
+    cursor: pointer;
+  }
+  .btn-primary:hover { background: #2563eb; }
+  .btn-secondary {
+    padding: 0.35rem 1rem;
+    background: #f9fafb;
+    color: #374151;
+    border: 1px solid #d1d5db;
+    border-radius: 4px;
+    font-size: 0.85rem;
+    cursor: pointer;
+  }
+  .btn-secondary:hover { background: #e5e7eb; }
+
+  @media (max-width: 900px) {
+    .callouts-row { grid-template-columns: repeat(2, 1fr); }
+  }
+
   @media (max-width: 768px) {
     .results-panel {
       padding: 1rem;
@@ -1009,5 +1389,9 @@
     .overview-stats {
       gap: 1.5rem;
     }
+  }
+
+  @media (max-width: 500px) {
+    .callouts-row { grid-template-columns: 1fr; }
   }
 </style>
